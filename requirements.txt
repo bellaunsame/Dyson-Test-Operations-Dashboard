@@ -6,3 +6,4 @@ Flask-Mail
 python-dotenv
 gunicorn
 pytest
+Flask-SQLAlchemy

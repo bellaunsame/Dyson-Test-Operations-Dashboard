@@ -2,33 +2,32 @@ import os
 import unittest
 import pandas as pd
 import datetime
-from app import ExcelDataStore, generate_pdf_report, EXCEL_PATH, UPLOAD_FOLDER
+from app import app, db, ExcelDataStore, Task, generate_pdf_report, UPLOAD_FOLDER
 
 class TestDysonDashboardBackend(unittest.TestCase):
     
     def setUp(self):
-        # Backup existing Excel if it exists to avoid overwriting user data
-        self.backup_path = EXCEL_PATH + ".bak"
-        if os.path.exists(EXCEL_PATH):
-            if os.path.exists(self.backup_path):
-                os.remove(self.backup_path)
-            os.rename(EXCEL_PATH, self.backup_path)
-            
-        # Re-initialize for test
-        ExcelDataStore.initialize_excel()
+        # Configure app for testing with an in-memory SQLite database
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+        app.config['TESTING'] = True
+        self.app = app.test_client()
+        
+        # Push application context
+        self.app_context = app.app_context()
+        self.app_context.push()
+        
+        # Create tables and seed data
+        db.create_all()
+        ExcelDataStore.initialize_db()
 
     def tearDown(self):
-        # Remove test Excel
-        if os.path.exists(EXCEL_PATH):
-            os.remove(EXCEL_PATH)
-            
-        # Restore backup
-        if os.path.exists(self.backup_path):
-            os.rename(self.backup_path, EXCEL_PATH)
+        # Clean up database and pop context
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
 
     def test_excel_initialization(self):
-        """Test that the Excel file is correctly initialized with sample tasks."""
-        self.assertTrue(os.path.exists(EXCEL_PATH))
+        """Test that the database is correctly initialized with sample tasks."""
         tasks = ExcelDataStore.get_tasks()
         self.assertEqual(len(tasks), 4)
         self.assertEqual(tasks[0]["Task ID"], "TSK-001")
@@ -51,14 +50,40 @@ class TestDysonDashboardBackend(unittest.TestCase):
         self.assertEqual(saved["Status"], "In Progress")
         self.assertTrue(saved["Task ID"].startswith("TSK-"))
         
-        # Verify it was written to Excel
+        # Verify it was written to database
         tasks = ExcelDataStore.get_tasks()
         self.assertEqual(len(tasks), 5)
         task_names = [t["Task Name"] for t in tasks]
         self.assertIn("Airstrait Speed Run Testing", task_names)
 
+    def test_update_task(self):
+        """Test updating an existing task."""
+        task_data = {
+            "Task ID": "TSK-001",
+            "Task Name": "Dyson V15 Cyclone Engine Optimization - Updated",
+            "Start Date": "2026-07-01",
+            "Duration": 18,  # Changed from 15 to 18
+            "Progress": 90,  # Changed from 80 to 90
+            "Owner": "Engineering Team"
+        }
+        
+        updated = ExcelDataStore.save_task(task_data)
+        
+        # Verify changes
+        self.assertEqual(updated["Task Name"], "Dyson V15 Cyclone Engine Optimization - Updated")
+        self.assertEqual(updated["Duration"], 18)
+        self.assertEqual(updated["Progress"], 90)
+        self.assertEqual(updated["End Date"], "2026-07-19")
+        self.assertEqual(updated["Status"], "In Progress")
+        
+        # Verify it is updated in database
+        tasks = ExcelDataStore.get_tasks()
+        self.assertEqual(len(tasks), 4)
+        task = [t for t in tasks if t["Task ID"] == "TSK-001"][0]
+        self.assertEqual(task["Task Name"], "Dyson V15 Cyclone Engine Optimization - Updated")
+
     def test_delete_task(self):
-        """Test deleting a task from the Excel sheet."""
+        """Test deleting a task from the database."""
         tasks_before = ExcelDataStore.get_tasks()
         self.assertEqual(len(tasks_before), 4)
         

@@ -9,6 +9,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from flask_sqlalchemy import SQLAlchemy
 
 # Load environment variables
 load_dotenv()
@@ -31,98 +32,163 @@ UPLOAD_FOLDER = os.path.join(app.root_path, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 EXCEL_PATH = os.path.join(UPLOAD_FOLDER, 'tasks.xlsx')
 
+# Configure Flask-SQLAlchemy
+DB_PATH = os.path.join(UPLOAD_FOLDER, 'dyson_ops.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
 # User credentials (simple mock login)
 USER_CREDENTIALS = {
     "username": "admin",
     "password": "dyson2026"
 }
 
-# --- EXCEL DATA STORE ---
+# --- DATABASE MODEL ---
+class Task(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.String(10), unique=True, nullable=False)
+    task_name = db.Column(db.String(100), nullable=False)
+    start_date = db.Column(db.String(10), nullable=False)
+    duration = db.Column(db.Integer, nullable=False)
+    end_date = db.Column(db.String(10), nullable=False)
+    progress = db.Column(db.Integer, nullable=False)
+    owner = db.Column(db.String(50), nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+
+    def to_dict(self):
+        return {
+            "Task ID": self.task_id,
+            "Task Name": self.task_name,
+            "Start Date": self.start_date,
+            "Duration": self.duration,
+            "End Date": self.end_date,
+            "Progress": self.progress,
+            "Owner": self.owner,
+            "Status": self.status
+        }
+
+# --- EXCEL DATA STORE (SQLite Wrapper) ---
 class ExcelDataStore:
     @staticmethod
+    def initialize_db():
+        """Initializes the SQLite database and migrates data from Excel if the DB is empty."""
+        db.create_all()
+        
+        # Check if DB is empty
+        if Task.query.count() == 0:
+            print("SQLite database is empty. Checking for Excel file to migrate...")
+            if os.path.exists(EXCEL_PATH):
+                try:
+                    df = pd.read_excel(EXCEL_PATH)
+                    df = df.fillna("")
+                    for _, row in df.iterrows():
+                        progress = int(row.get("Progress", 0))
+                        status = row.get("Status", "Not Started")
+                        if progress == 100:
+                            status = "Completed"
+                        elif progress > 0:
+                            status = "In Progress"
+                        else:
+                            status = "Not Started"
+                            
+                        start_date = str(row["Start Date"])
+                        if " " in start_date:
+                            start_date = start_date.split(" ")[0]
+                        end_date = str(row["End Date"])
+                        if " " in end_date:
+                            end_date = end_date.split(" ")[0]
+
+                        task = Task(
+                            task_id=row["Task ID"],
+                            task_name=row["Task Name"],
+                            start_date=start_date,
+                            duration=int(row["Duration"]),
+                            end_date=end_date,
+                            progress=progress,
+                            owner=row["Owner"],
+                            status=status
+                        )
+                        db.session.add(task)
+                    db.session.commit()
+                    print("Migration from Excel to SQLite completed successfully!")
+                except Exception as e:
+                    print(f"Error migrating from Excel: {e}")
+                    db.session.rollback()
+            else:
+                print("No Excel file found. Seeding database with initial Dyson sample data...")
+                sample_tasks = [
+                    {
+                        "task_id": "TSK-001",
+                        "task_name": "Dyson V15 Cyclone Engine Optimization",
+                        "start_date": "2026-07-01",
+                        "duration": 15,
+                        "end_date": "2026-07-16",
+                        "progress": 80,
+                        "owner": "Engineering Team",
+                        "status": "In Progress"
+                    },
+                    {
+                        "task_id": "TSK-002",
+                        "task_name": "Supersonic Hair Dryer Noise Reduction",
+                        "start_date": "2026-07-10",
+                        "duration": 20,
+                        "end_date": "2026-07-30",
+                        "progress": 45,
+                        "owner": "Acoustics Team",
+                        "status": "In Progress"
+                    },
+                    {
+                        "task_id": "TSK-003",
+                        "task_name": "360 Vis Nav Robot Vacuum Pathing",
+                        "start_date": "2026-07-18",
+                        "duration": 12,
+                        "end_date": "2026-07-30",
+                        "progress": 10,
+                        "owner": "Software Team",
+                        "status": "In Progress"
+                    },
+                    {
+                        "task_id": "TSK-004",
+                        "task_name": "Airstrait Straightener Thermal Control",
+                        "start_date": "2026-07-25",
+                        "duration": 8,
+                        "end_date": "2026-08-02",
+                        "progress": 0,
+                        "owner": "Thermal Team",
+                        "status": "Not Started"
+                    }
+                ]
+                for st in sample_tasks:
+                    task = Task(**st)
+                    db.session.add(task)
+                db.session.commit()
+
+    @staticmethod
     def initialize_excel():
-        """Creates the Excel file with initial Dyson-themed sample data if it doesn't exist."""
-        if not os.path.exists(EXCEL_PATH):
-            sample_tasks = [
-                {
-                    "Task ID": "TSK-001",
-                    "Task Name": "Dyson V15 Cyclone Engine Optimization",
-                    "Start Date": "2026-07-01",
-                    "Duration": 15,
-                    "End Date": "2026-07-16",
-                    "Progress": 80,
-                    "Owner": "Engineering Team",
-                    "Status": "In Progress"
-                },
-                {
-                    "Task ID": "TSK-002",
-                    "Task Name": "Supersonic Hair Dryer Noise Reduction",
-                    "Start Date": "2026-07-10",
-                    "Duration": 20,
-                    "End Date": "2026-07-30",
-                    "Progress": 45,
-                    "Owner": "Acoustics Team",
-                    "Status": "In Progress"
-                },
-                {
-                    "Task ID": "TSK-003",
-                    "Task Name": "360 Vis Nav Robot Vacuum Pathing",
-                    "Start Date": "2026-07-18",
-                    "Duration": 12,
-                    "End Date": "2026-07-30",
-                    "Progress": 10,
-                    "Owner": "Software Team",
-                    "Status": "In Progress"
-                },
-                {
-                    "Task ID": "TSK-004",
-                    "Task Name": "Airstrait Straightener Thermal Control",
-                    "Start Date": "2026-07-25",
-                    "Duration": 8,
-                    "End Date": "2026-08-02",
-                    "Progress": 0,
-                    "Owner": "Thermal Team",
-                    "Status": "Not Started"
-                }
-            ]
-            df = pd.DataFrame(sample_tasks)
-            df.to_excel(EXCEL_PATH, index=False)
+        # Keep for backward compatibility
+        ExcelDataStore.initialize_db()
 
     @staticmethod
     def get_tasks():
-        """Reads tasks from the Excel file and returns them as a list of dicts."""
-        ExcelDataStore.initialize_excel()
+        """Reads tasks from the SQLite database and returns them as a list of dicts."""
+        ExcelDataStore.initialize_db()
         try:
-            df = pd.read_excel(EXCEL_PATH)
-            # Fill NaNs to avoid JSON serialization issues
-            df = df.fillna("")
-            # Ensure proper types
-            df["Duration"] = df["Duration"].astype(int)
-            df["Progress"] = df["Progress"].astype(int)
-            return df.to_dict(orient="records")
+            tasks = Task.query.all()
+            return [t.to_dict() for t in tasks]
         except Exception as e:
-            print(f"Error reading Excel: {e}")
+            print(f"Error reading database: {e}")
             return []
 
     @staticmethod
     def save_task(task_data):
-        """Adds or updates a task in the Excel sheet."""
-        ExcelDataStore.initialize_excel()
+        """Adds or updates a task in the SQLite database."""
+        ExcelDataStore.initialize_db()
         try:
-            df = pd.read_excel(EXCEL_PATH)
-            
-            # Calculate End Date based on Start Date + Duration
             start_dt = datetime.datetime.strptime(task_data["Start Date"], "%Y-%m-%d")
             end_dt = start_dt + datetime.timedelta(days=int(task_data["Duration"]))
             task_data["End Date"] = end_dt.strftime("%Y-%m-%d")
             
-            # Generate Task ID if not provided
-            if not task_data.get("Task ID"):
-                # Clean prefix and number
-                next_num = len(df) + 1
-                task_data["Task ID"] = f"TSK-{next_num:03d}"
-            
-            # Determine Status based on Progress
             progress = int(task_data["Progress"])
             if progress == 100:
                 task_data["Status"] = "Completed"
@@ -131,39 +197,65 @@ class ExcelDataStore:
             else:
                 task_data["Status"] = "Not Started"
 
-            # Check if task already exists, update it, else append
-            if task_data["Task ID"] in df["Task ID"].values:
-                idx = df[df["Task ID"] == task_data["Task ID"]].index[0]
-                for col, val in task_data.items():
-                    df.at[idx, col] = val
+            task_id = task_data.get("Task ID")
+            task = None
+            if task_id:
+                task = Task.query.filter_by(task_id=task_id).first()
+
+            if task:
+                task.task_name = task_data["Task Name"]
+                task.start_date = task_data["Start Date"]
+                task.duration = int(task_data["Duration"])
+                task.end_date = task_data["End Date"]
+                task.progress = progress
+                task.owner = task_data["Owner"]
+                task.status = task_data["Status"]
             else:
-                # Add new row
-                new_row = pd.DataFrame([task_data])
-                df = pd.concat([df, new_row], ignore_index=True)
+                if not task_id:
+                    next_num = Task.query.count() + 1
+                    task_id = f"TSK-{next_num:03d}"
+                    while Task.query.filter_by(task_id=task_id).first() is not None:
+                        next_num += 1
+                        task_id = f"TSK-{next_num:03d}"
                 
-            df.to_excel(EXCEL_PATH, index=False)
-            return task_data
+                task = Task(
+                    task_id=task_id,
+                    task_name=task_data["Task Name"],
+                    start_date=task_data["Start Date"],
+                    duration=int(task_data["Duration"]),
+                    end_date=task_data["End Date"],
+                    progress=progress,
+                    owner=task_data["Owner"],
+                    status=task_data["Status"]
+                )
+                db.session.add(task)
+                
+            db.session.commit()
+            return task.to_dict()
         except Exception as e:
-            print(f"Error saving task to Excel: {e}")
+            print(f"Error saving task: {e}")
+            db.session.rollback()
             raise e
 
     @staticmethod
     def delete_task(task_id):
-        """Deletes a task by ID from the Excel sheet."""
-        ExcelDataStore.initialize_excel()
+        """Deletes a task by ID from the SQLite database."""
+        ExcelDataStore.initialize_db()
         try:
-            df = pd.read_excel(EXCEL_PATH)
-            if task_id in df["Task ID"].values:
-                df = df[df["Task ID"] != task_id]
-                df.to_excel(EXCEL_PATH, index=False)
+            task = Task.query.filter_by(task_id=task_id).first()
+            if task:
+                db.session.delete(task)
+                db.session.commit()
                 return True
             return False
         except Exception as e:
             print(f"Error deleting task: {e}")
+            db.session.rollback()
             return False
 
-# Initialize the Excel file on startup
-ExcelDataStore.initialize_excel()
+# Initialize the database on startup
+with app.app_context():
+    ExcelDataStore.initialize_db()
 
 
 # --- DECORATORS / HELPER FUNCTIONS ---
@@ -244,6 +336,36 @@ def add_task_api():
         
         saved_task = ExcelDataStore.save_task(task_data)
         return jsonify(saved_task), 201
+    except ValueError:
+        return jsonify({"error": "Duration and Progress must be valid integers."}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/tasks/<task_id>', methods=['PUT'])
+@login_required
+def update_task_api(task_id):
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+            
+        required = ["Task Name", "Start Date", "Duration", "Progress", "Owner"]
+        for field in required:
+            if field not in data or str(data[field]).strip() == "":
+                return jsonify({"error": f"Field '{field}' is required."}), 400
+
+        task_data = {
+            "Task ID": task_id,
+            "Task Name": data["Task Name"],
+            "Start Date": data["Start Date"],
+            "Duration": int(data["Duration"]),
+            "Progress": int(data["Progress"]),
+            "Owner": data["Owner"]
+        }
+        
+        saved_task = ExcelDataStore.save_task(task_data)
+        return jsonify(saved_task)
     except ValueError:
         return jsonify({"error": "Duration and Progress must be valid integers."}), 400
     except Exception as e:

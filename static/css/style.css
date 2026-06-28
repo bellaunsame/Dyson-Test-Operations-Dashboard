@@ -1585,3 +1585,19 @@ button {
         text-align: center;
     }
 }
+
+.edit-btn {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 14px;
+    padding: 6px;
+    border-radius: var(--border-radius-sm);
+    transition: all var(--transition-speed);
+    margin-right: 8px;
+}
+
+.edit-btn:hover {
+    color: var(--color-primary);
+    background-color: rgba(0, 83, 156, 0.1);
+}

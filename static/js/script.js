@@ -5,6 +5,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // Global State
     let tasksData = [];
+    let editingTaskId = null;
     let ganttChartInstance = null;
 
     // DOM Elements
@@ -28,6 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCloseModal = document.getElementById('btn-close-modal');
     const btnCancelEmail = document.getElementById('btn-cancel-email');
     const emailForm = document.getElementById('email-form');
+    
+    // Edit Form Controls
+    const btnCancelEdit = document.getElementById('btn-cancel-edit');
+    const btnAddTask = document.getElementById('btn-add-task');
     
     // Log Modal Elements
     const emailLogModal = document.getElementById('email-log-modal');
@@ -115,11 +120,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${task['Owner']}</td>
                 <td>${statusBadge}</td>
                 <td>
+                    <button class="edit-btn" data-id="${task['Task ID']}" title="Edit Task">
+                        <i class="fa-solid fa-pencil"></i>
+                    </button>
                     <button class="delete-btn" data-id="${task['Task ID']}" title="Delete Task">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </td>
             `;
+
+            // Attach Edit Event Listener
+            tr.querySelector('.edit-btn').addEventListener('click', (e) => {
+                const taskId = e.currentTarget.getAttribute('data-id');
+                startEditTask(taskId);
+            });
 
             // Attach Delete Event Listener
             tr.querySelector('.delete-btn').addEventListener('click', (e) => {
@@ -260,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // TASK CRUD OPERATIONS
     // ==========================================
 
-    // Add Task Form Submission
+    // Add / Edit Task Form Submission
     addTaskForm.addEventListener('submit', (e) => {
         e.preventDefault();
 
@@ -281,10 +295,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = document.getElementById('btn-add-task');
         const originalText = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Adding...';
+        btn.innerHTML = editingTaskId 
+            ? '<i class="fa-solid fa-spinner fa-spin"></i> Updating...' 
+            : '<i class="fa-solid fa-spinner fa-spin"></i> Adding...';
 
-        fetch('/api/tasks', {
-            method: 'POST',
+        const url = editingTaskId ? `/api/tasks/${editingTaskId}` : '/api/tasks';
+        const method = editingTaskId ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method: method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         })
@@ -295,10 +314,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return res.json();
         })
         .then(data => {
-            showToast(`Task "${data['Task Name']}" created successfully!`, 'success');
-            addTaskForm.reset();
-            // Keep start date as today's date
-            document.getElementById('start-date').value = todayStr;
+            if (editingTaskId) {
+                showToast(`Task "${data['Task Name']}" updated successfully!`, 'success');
+            } else {
+                showToast(`Task "${data['Task Name']}" created successfully!`, 'success');
+            }
+            cancelEditTask();
             fetchTasks();
         })
         .catch(err => {
@@ -306,9 +327,50 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .finally(() => {
             btn.disabled = false;
-            btn.innerHTML = originalText;
+            if (btn.innerHTML.includes('fa-spinner')) {
+                if (editingTaskId) {
+                    btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Task';
+                } else {
+                    btn.innerHTML = '<i class="fa-solid fa-plus"></i> Add Task';
+                }
+            }
         });
     });
+
+    // Edit Task Mode Toggle
+    function startEditTask(taskId) {
+        const task = tasksData.find(t => t['Task ID'] === taskId);
+        if (!task) return;
+
+        editingTaskId = taskId;
+        
+        // Populate form fields
+        document.getElementById('task-name').value = task['Task Name'];
+        document.getElementById('start-date').value = task['Start Date'];
+        document.getElementById('duration').value = task['Duration'];
+        document.getElementById('progress').value = task['Progress'];
+        document.getElementById('owner').value = task['Owner'];
+
+        // Update UI buttons
+        btnAddTask.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Task';
+        btnAddTask.className = 'btn btn-accent'; // Dyson Fuchsia accent for editing
+        btnCancelEdit.style.display = 'inline-block';
+        
+        // Scroll to form for better UX
+        document.getElementById('add-task-form').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function cancelEditTask() {
+        editingTaskId = null;
+        addTaskForm.reset();
+        document.getElementById('start-date').value = todayStr;
+        
+        btnAddTask.innerHTML = '<i class="fa-solid fa-plus"></i> Add Task';
+        btnAddTask.className = 'btn btn-primary';
+        btnCancelEdit.style.display = 'none';
+    }
+
+    btnCancelEdit.addEventListener('click', cancelEditTask);
 
     // Delete Task Operation
     function deleteTask(taskId) {
