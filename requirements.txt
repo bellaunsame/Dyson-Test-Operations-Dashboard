@@ -1,0 +1,8 @@
+Flask
+pandas
+openpyxl
+reportlab
+Flask-Mail
+python-dotenv
+gunicorn
+pytest

@@ -1,0 +1,300 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - Dyson Operations Dashboard{% endblock %}
+
+{% block content %}
+<div class="dashboard-layout">
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <i class="fa-solid fa-wind logo-icon"></i>
+            <div class="logo-text">
+                <h2>dyson</h2>
+                <span>OPERATIONS</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-menu">
+            <a href="#" class="menu-item active">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>Operations Room</span>
+            </a>
+            <a href="#" class="menu-item" id="btn-sync-sharepoint">
+                <i class="fa-solid fa-arrows-rotate"></i>
+                <span>SharePoint Sync</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-divider"></div>
+
+        <!-- QUICK ACTIONS -->
+        <div class="quick-actions">
+            <h3>QUICK ACTIONS</h3>
+            <a href="{{ url_for('generate_report') }}" class="btn btn-secondary btn-action" id="btn-pdf-download">
+                <i class="fa-solid fa-file-pdf"></i>
+                <span>Export PDF Report</span>
+            </a>
+            <button class="btn btn-accent btn-action" id="btn-email-modal-trigger">
+                <i class="fa-solid fa-envelope"></i>
+                <span>Email Daily Report</span>
+            </button>
+        </div>
+
+        <!-- USER PROFILE -->
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="user-avatar">
+                    <i class="fa-solid fa-circle-user"></i>
+                </div>
+                <div class="user-details">
+                    <p class="username">{{ username or 'Administrator' }}</p>
+                    <p class="role">Operations Lead</p>
+                </div>
+            </div>
+            <a href="{{ url_for('logout') }}" class="logout-btn" title="Log Out">
+                <i class="fa-solid fa-right-from-bracket"></i>
+            </a>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="main-content">
+        <!-- TOP NAVBAR / BANNER -->
+        <header class="main-header">
+            <div class="header-title">
+                <h1>Operations Dashboard</h1>
+                <p>Real-time Dyson engineering sprints & timeline management.</p>
+            </div>
+            <div class="header-status">
+                <span class="status-indicator online"></span>
+                <span>SharePoint Database Connected</span>
+            </div>
+        </header>
+
+        <!-- STATS CARDS -->
+        <section class="stats-grid">
+            <div class="stats-card">
+                <div class="stats-icon text-blue">
+                    <i class="fa-solid fa-list-check"></i>
+                </div>
+                <div class="stats-info">
+                    <h3 id="stat-total-tasks">-</h3>
+                    <p>Total Sprint Tasks</p>
+                </div>
+            </div>
+            <div class="stats-card">
+                <div class="stats-icon text-pink">
+                    <i class="fa-solid fa-spinner fa-spin-slow"></i>
+                </div>
+                <div class="stats-info">
+                    <h3 id="stat-in-progress">-</h3>
+                    <p>Tasks In Progress</p>
+                </div>
+            </div>
+            <div class="stats-card">
+                <div class="stats-icon text-green">
+                    <i class="fa-solid fa-circle-check"></i>
+                </div>
+                <div class="stats-info">
+                    <h3 id="stat-completed">-</h3>
+                    <p>Completed Tasks</p>
+                </div>
+            </div>
+            <div class="stats-card">
+                <div class="stats-icon text-yellow">
+                    <i class="fa-solid fa-chart-pie"></i>
+                </div>
+                <div class="stats-info">
+                    <h3 id="stat-avg-progress">-%</h3>
+                    <p>Average Progress</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- DASHBOARD GRID -->
+        <div class="dashboard-grid">
+            <!-- GANTT CHART CARD -->
+            <div class="grid-card gantt-card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-timeline"></i> Sprint Gantt Chart</h2>
+                    <span class="card-subtitle">Calculated task timelines</span>
+                </div>
+                <div class="card-body chart-container">
+                    <canvas id="ganttChart"></canvas>
+                </div>
+            </div>
+
+            <!-- TASK MANAGER & TABLE CARD -->
+            <div class="grid-card tasks-card">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-list-ul"></i> Task Inventory</h2>
+                    <span class="card-subtitle">Excel Database (`tasks.xlsx`)</span>
+                </div>
+                <div class="card-body">
+                    <!-- ADD TASK FORM -->
+                    <form id="add-task-form" class="task-form">
+                        <div class="form-row">
+                            <div class="form-group col-4">
+                                <label for="task-name">Task Name</label>
+                                <input type="text" id="task-name" placeholder="e.g., V15 Airflow CFD Testing" required>
+                            </div>
+                            <div class="form-group col-2">
+                                <label for="start-date">Start Date</label>
+                                <input type="date" id="start-date" required>
+                            </div>
+                            <div class="form-group col-2">
+                                <label for="duration">Duration (Days)</label>
+                                <input type="number" id="duration" min="1" placeholder="e.g., 10" required>
+                            </div>
+                            <div class="form-group col-2">
+                                <label for="progress">Progress (%)</label>
+                                <input type="number" id="progress" min="0" max="100" placeholder="e.g., 0" required>
+                            </div>
+                            <div class="form-group col-2">
+                                <label for="owner">Owner Team</label>
+                                <select id="owner" required>
+                                    <option value="Engineering Team">Engineering</option>
+                                    <option value="Acoustics Team">Acoustics</option>
+                                    <option value="Software Team">Software</option>
+                                    <option value="Thermal Team">Thermal</option>
+                                    <option value="Design Team">Industrial Design</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="btn-add-task">
+                            <i class="fa-solid fa-plus"></i> Add Task
+                        </button>
+                    </form>
+
+                    <!-- TASKS TABLE -->
+                    <div class="table-responsive">
+                        <table class="dyson-table" id="tasks-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Task Name</th>
+                                    <th>Start Date</th>
+                                    <th>End Date</th>
+                                    <th>Duration</th>
+                                    <th>Progress</th>
+                                    <th>Owner</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Loaded dynamically via AJAX -->
+                                <tr>
+                                    <td colspan="9" class="text-center">Loading operations data...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- RIGHT CHATBOT PANEL -->
+    <aside class="chatbot-panel" id="chatbot-panel">
+        <div class="chatbot-header">
+            <div class="chatbot-title">
+                <div class="bot-avatar">
+                    <i class="fa-solid fa-robot"></i>
+                </div>
+                <div>
+                    <h3>Dyson AI Assistant</h3>
+                    <span>Operations Support</span>
+                </div>
+            </div>
+            <button class="chatbot-toggle-btn" id="btn-minimize-chat" title="Close Chat">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- CHAT MESSAGES -->
+        <div class="chatbot-messages" id="chat-messages">
+            <div class="message bot-message">
+                <p>Hello! I'm your Dyson Operations AI Assistant. I can analyze the Excel task sheet in real-time. Try asking me:</p>
+                <div class="chat-chips">
+                    <button class="chat-chip">How many tasks do we have?</button>
+                    <button class="chat-chip">What is the average progress?</button>
+                    <button class="chat-chip">Are there any overdue tasks?</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CHAT INPUT -->
+        <div class="chatbot-input-container">
+            <form id="chat-form" class="chat-input-form">
+                <input type="text" id="chat-input" placeholder="Ask about tasks, schedules, progress..." required autocomplete="off">
+                <button type="submit" class="chat-send-btn" id="btn-send-chat">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </form>
+        </div>
+    </aside>
+</div>
+
+<!-- EMAIL MODAL -->
+<div class="modal-backdrop" id="email-modal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h2><i class="fa-solid fa-envelope"></i> Email Daily PDF Report</h2>
+            <button class="modal-close-btn" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form id="email-form" class="modal-form">
+            <div class="form-group">
+                <label for="email-recipient">Recipient Email</label>
+                <input type="email" id="email-recipient" value="operations-manager@dyson.com" required>
+            </div>
+            <div class="form-group">
+                <label for="email-subject">Subject</label>
+                <input type="text" id="email-subject" value="Dyson Operations Daily Report - Today" required>
+            </div>
+            <div class="form-group">
+                <label>Attachment</label>
+                <div class="modal-attachment">
+                    <i class="fa-solid fa-file-pdf"></i>
+                    <span>Dyson_Daily_Operations_Report.pdf</span>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="btn-cancel-email">Cancel</button>
+                <button type="submit" class="btn btn-accent" id="btn-send-email-submit">
+                    <i class="fa-solid fa-paper-plane"></i> Send Email
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- SIMULATED EMAIL LOG DETAILS MODAL -->
+<div class="modal-backdrop" id="email-log-modal">
+    <div class="modal-card log-card">
+        <div class="modal-header">
+            <h2><i class="fa-solid fa-bug"></i> Simulated SMTP Log Output</h2>
+            <button class="modal-close-btn" id="btn-close-log-modal"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body">
+            <p class="log-desc">Since SMTP is not configured in `.env`, the email was simulated. The details below were output to the server console:</p>
+            <pre class="log-pre" id="email-log-content"></pre>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="btn btn-primary" id="btn-close-log-ok">OK</button>
+        </div>
+    </div>
+</div>
+
+<!-- FLOATING TOAST NOTIFICATIONS -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- FLOATING CHAT BUBBLE BUTTON -->
+<button class="chatbot-bubble-btn" id="btn-chatbot-bubble" title="Open Dyson AI Assistant">
+    <i class="fa-solid fa-robot"></i>
+</button>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+{% endblock %}

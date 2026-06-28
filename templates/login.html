@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block title %}Login - Dyson Operations Dashboard{% endblock %}
+
+{% block content %}
+<div class="login-page">
+    <div class="login-background-glow"></div>
+    <div class="login-card">
+        <div class="login-logo">
+            <i class="fa-solid fa-wind logo-icon"></i>
+            <h2>dyson</h2>
+            <span>OPERATIONS SYSTEM</span>
+        </div>
+        
+        <p class="login-subtitle">Enter your credentials to access the internal dashboard.</p>
+        
+        {% if error %}
+        <div class="alert-danger">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>{{ error }}</span>
+        </div>
+        {% endif %}
+        
+        <form action="{{ url_for('login') }}" method="POST" class="login-form">
+            <div class="form-group">
+                <label for="username"><i class="fa-solid fa-user"></i> Username</label>
+                <input type="text" id="username" name="username" placeholder="e.g. admin" required autocomplete="off">
+            </div>
+            
+            <div class="form-group">
+                <label for="password"><i class="fa-solid fa-lock"></i> Password</label>
+                <input type="password" id="password" name="password" placeholder="••••••••" required>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-block">
+                <span>Access Dashboard</span>
+                <i class="fa-solid fa-arrow-right"></i>
+            </button>
+        </form>
+        
+        <div class="login-footer">
+            <p><i class="fa-solid fa-shield-halved"></i> Authorized Personnel Only</p>
+            <p class="demo-creds">Demo: <code>admin</code> / <code>dyson2026</code></p>
+        </div>
+    </div>
+</div>
+{% endblock %}
