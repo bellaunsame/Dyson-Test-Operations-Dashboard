@@ -400,6 +400,73 @@
         background: var(--color-border);
         margin: 4px 0;
     }
+
+    /* File selection table row styles */
+    .file-select-table tbody tr {
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .file-select-table tbody tr td {
+        padding: 12px 15px;
+        border-bottom: 1px solid var(--color-border);
+        font-size: 13px;
+    }
+    .file-select-table tbody tr:hover {
+        background: rgba(255,255,255,0.04);
+    }
+    .file-select-table tbody tr.selected {
+        background: rgba(0, 83, 156, 0.1);
+        border-left: 3px solid var(--color-primary);
+    }
+    .file-select-table tbody tr.selected td:first-child {
+        color: var(--color-primary);
+        font-weight: 700;
+    }
+
+    /* Disabled button style */
+    #btn-file-next:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        pointer-events: auto; /* keep tooltip visible */
+    }
+    #btn-file-next:not(:disabled) {
+        animation: pulseBtn 1.5s ease-in-out 2;
+    }
+    @keyframes pulseBtn {
+        0%   { box-shadow: 0 0 0 0 rgba(0, 83, 156, 0.5); }
+        50%  { box-shadow: 0 0 0 8px rgba(0, 83, 156, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(0, 83, 156, 0); }
+    }
+    /* Source Tabs */
+    .source-tab {
+        background: none;
+        border: none;
+        border-bottom: 3px solid transparent;
+        color: var(--color-text-muted);
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 10px 18px;
+        margin-bottom: -2px;
+        transition: color 0.15s, border-color 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+    }
+    .source-tab:hover {
+        color: var(--color-text-main);
+    }
+    .source-tab.active {
+        color: var(--color-primary);
+        border-bottom-color: var(--color-primary);
+        font-weight: 700;
+    }
+
+    /* Drag & Drop zone */
+    #local-drop-zone.dragover {
+        border-color: var(--color-primary);
+        background: rgba(0, 83, 156, 0.06);
+    }
 </style>
 {% endblock %}
 
@@ -416,29 +483,89 @@
         </header>
 
         <div class="grid-card" style="padding: 20px;">
-            <h3 style="margin-top: 0; font-size: 16px; margin-bottom: 15px;"><i class="fa-solid fa-folder-open"></i> SharePoint Document Library</h3>
-            <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 8px;">
-                <table class="file-select-table" style="width:100%;">
-                    <thead>
-                        <tr style="background: rgba(255,255,255,0.02); text-align: left; border-bottom: 2px solid var(--color-border);">
-                            <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted);">File Name</th>
-                            <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted);">Relative Path</th>
-                            <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); width: 80px;">Size</th>
-                            <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); width: 100px;">Modified</th>
-                        </tr>
-                    </thead>
-                    <tbody id="file-list-tbody">
-                        <tr>
-                            <td colspan="4" class="text-center" style="padding: 35px; color: var(--color-text-muted);">
-                                <i class="fa-solid fa-spinner fa-spin"></i> Connecting to SharePoint...
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- Source Tabs -->
+            <div style="display: flex; gap: 0; border-bottom: 2px solid var(--color-border); margin-bottom: 20px;">
+                <button id="tab-sharepoint" class="source-tab active" onclick="switchTab('sharepoint')">
+                    <i class="fa-brands fa-microsoft"></i> SharePoint Document Library
+                </button>
+                <button id="tab-local" class="source-tab" onclick="switchTab('local')">
+                    <i class="fa-solid fa-folder-arrow-up"></i> Import Local File
+                </button>
             </div>
-            <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
-                <button class="btn btn-primary" id="btn-file-next" disabled>
-                    Open Navigator <i class="fa-solid fa-arrow-right"></i>
+
+            <!-- Tab 1: SharePoint -->
+            <div id="panel-tab-sharepoint">
+                <div style="max-height: 360px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 8px;">
+                    <table class="file-select-table" style="width:100%;">
+                        <thead>
+                            <tr style="background: rgba(255,255,255,0.02); text-align: left; border-bottom: 2px solid var(--color-border);">
+                                <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted);">File Name</th>
+                                <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted);">Relative Path</th>
+                                <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); width: 80px;">Size</th>
+                                <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); width: 100px;">Modified</th>
+                            </tr>
+                        </thead>
+                        <tbody id="file-list-tbody">
+                            <tr>
+                                <td colspan="4" class="text-center" style="padding: 35px; color: var(--color-text-muted);">
+                                    <i class="fa-solid fa-spinner fa-spin"></i> Connecting to SharePoint...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab 2: Local Import -->
+            <div id="panel-tab-local" style="display: none;">
+                <!-- Hidden file input -->
+                <input type="file" id="local-file-input" accept=".xlsx,.xls" style="display:none;">
+
+                <!-- Drag & Drop Zone -->
+                <div id="local-drop-zone"
+                     style="border: 2px dashed var(--color-border); border-radius: 10px; padding: 50px 30px;
+                            text-align: center; cursor: pointer; transition: all 0.2s;
+                            background: rgba(255,255,255,0.01);">
+                    <div style="font-size: 40px; color: var(--color-primary); margin-bottom: 15px;">
+                        <i class="fa-solid fa-file-excel"></i>
+                    </div>
+                    <p style="font-size: 15px; font-weight: 600; margin: 0 0 6px;">Drag & Drop your Excel file here</p>
+                    <p style="font-size: 12px; color: var(--color-text-muted); margin: 0 0 20px;">Supports .xlsx and .xls files</p>
+                    <button class="btn btn-secondary" id="btn-browse-local" type="button"
+                            style="padding: 8px 20px; font-size: 13px;">
+                        <i class="fa-solid fa-folder-open"></i> Browse Files
+                    </button>
+                </div>
+
+                <!-- Selected local file display -->
+                <div id="local-file-preview" style="display: none; margin-top: 15px;
+                     border: 1px solid var(--pbi-green); border-radius: 8px; padding: 14px 18px;
+                     background: rgba(16, 124, 65, 0.07); display: none; align-items: center; gap: 12px;">
+                    <i class="fa-solid fa-file-excel" style="font-size: 28px; color: var(--pbi-green);"></i>
+                    <div style="flex: 1;">
+                        <div id="local-file-display-name" style="font-weight: 700; font-size: 14px;"></div>
+                        <div id="local-file-display-size" style="font-size: 12px; color: var(--color-text-muted); margin-top: 2px;"></div>
+                    </div>
+                    <button class="btn btn-secondary" id="btn-clear-local" type="button"
+                            style="padding: 4px 10px; font-size: 12px;">
+                        <i class="fa-solid fa-xmark"></i> Clear
+                    </button>
+                </div>
+            </div>
+
+            <!-- Footer: hint + Open Navigator -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+                <span id="file-select-hint" style="font-size: 13px; color: var(--color-text-muted); display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-circle-info" style="color: var(--color-primary);"></i>
+                    Select a file above to continue.
+                </span>
+                <span id="file-selected-badge" style="display: none; font-size: 13px; color: var(--pbi-green); align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <span id="file-selected-name"></span>
+                </span>
+                <button class="btn btn-primary" id="btn-file-next" disabled
+                    title="Please select a file from the list above first">
+                    <i class="fa-solid fa-table-columns" style="margin-right: 6px;"></i>Open Navigator <i class="fa-solid fa-arrow-right"></i>
                 </button>
             </div>
         </div>

@@ -2,6 +2,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // State
     let selectedFilePath = '';
     let excelFileName = '';
+    let localFileObject = null; // Raw File object for local upload
+    let activeSource = 'sharepoint'; // 'sharepoint' | 'local'
     let sheetsData = {}; // sheetName -> { columns: [...], rows: [...] }
     let selectedSheets = new Set(); // Set of sheet names checked
     let activeSheet = ''; // Currently previewed/edited sheet
@@ -44,10 +46,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function initImportFlow() {
         loadSharePointFiles();
+        initLocalUpload();
 
         // Step 1 -> Open Navigator
         btnFileNext.addEventListener('click', () => {
-            openNavigator();
+            if (activeSource === 'local') {
+                openNavigatorFromLocal();
+            } else {
+                openNavigator();
+            }
         });
 
         // Navigator Buttons
@@ -86,6 +93,105 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ── Tab Switcher (exposed globally for onclick) ──
+    window.switchTab = function(tab) {
+        activeSource = tab;
+        document.getElementById('tab-sharepoint').classList.toggle('active', tab === 'sharepoint');
+        document.getElementById('tab-local').classList.toggle('active', tab === 'local');
+        document.getElementById('panel-tab-sharepoint').style.display = tab === 'sharepoint' ? '' : 'none';
+        document.getElementById('panel-tab-local').style.display = tab === 'local' ? '' : 'none';
+
+        // Reset selection state when switching tabs
+        selectedFilePath = '';
+        excelFileName = '';
+        localFileObject = null;
+        btnFileNext.disabled = true;
+        btnFileNext.title = 'Please select a file from the list above first';
+        const hint = document.getElementById('file-select-hint');
+        const badge = document.getElementById('file-selected-badge');
+        if (hint)  hint.style.display = 'flex';
+        if (badge) badge.style.display = 'none';
+    };
+
+    // ── Local File Upload Init ──
+    function initLocalUpload() {
+        const fileInput  = document.getElementById('local-file-input');
+        const dropZone   = document.getElementById('local-drop-zone');
+        const btnBrowse  = document.getElementById('btn-browse-local');
+        const btnClear   = document.getElementById('btn-clear-local');
+        const preview    = document.getElementById('local-file-preview');
+        const dispName   = document.getElementById('local-file-display-name');
+        const dispSize   = document.getElementById('local-file-display-size');
+
+        if (!fileInput) return;
+
+        // Browse button
+        btnBrowse.addEventListener('click', () => fileInput.click());
+
+        // Drop zone click
+        dropZone.addEventListener('click', (e) => {
+            if (e.target !== btnBrowse && !btnBrowse.contains(e.target)) fileInput.click();
+        });
+
+        // File input change
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) applyLocalFile(fileInput.files[0]);
+        });
+
+        // Drag and drop
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) applyLocalFile(file);
+        });
+
+        // Clear button
+        btnClear.addEventListener('click', () => {
+            localFileObject = null;
+            excelFileName = '';
+            selectedFilePath = '';
+            fileInput.value = '';
+            dropZone.style.display = '';
+            preview.style.display = 'none';
+            btnFileNext.disabled = true;
+            btnFileNext.title = 'Please select a file from the list above first';
+            const hint = document.getElementById('file-select-hint');
+            const badge = document.getElementById('file-selected-badge');
+            if (hint)  hint.style.display = 'flex';
+            if (badge) badge.style.display = 'none';
+        });
+
+        function applyLocalFile(file) {
+            const allowed = ['.xlsx', '.xls'];
+            const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+            if (!allowed.includes(ext)) {
+                showToast('Only .xlsx and .xls files are supported.', 'error');
+                return;
+            }
+            localFileObject = file;
+            excelFileName = file.name;
+            selectedFilePath = `local://${file.name}`;
+
+            // Show preview card, hide drop zone
+            dropZone.style.display = 'none';
+            dispName.textContent = file.name;
+            dispSize.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+            preview.style.display = 'flex';
+
+            // Enable Open Navigator
+            btnFileNext.disabled = false;
+            btnFileNext.title = `Open Navigator for: ${file.name}`;
+            const hint = document.getElementById('file-select-hint');
+            const badge = document.getElementById('file-selected-badge');
+            const badgeName = document.getElementById('file-selected-name');
+            if (hint)  hint.style.display = 'none';
+            if (badge) { badge.style.display = 'flex'; badgeName.textContent = file.name; }
+        }
+    }
+
     // ── Load SharePoint File List ──
     function loadSharePointFiles() {
         fetch('/api/sharepoint/browse')
@@ -114,6 +220,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         selectedFilePath = f.path;
                         excelFileName = f.name;
                         btnFileNext.disabled = false;
+                        btnFileNext.title = `Open Navigator for: ${f.name}`;
+
+                        // Show selected badge, hide hint
+                        const hint = document.getElementById('file-select-hint');
+                        const badge = document.getElementById('file-selected-badge');
+                        const badgeName = document.getElementById('file-selected-name');
+                        if (hint)  hint.style.display = 'none';
+                        if (badge) { badge.style.display = 'flex'; badgeName.textContent = f.name; }
                     });
 
                     fileListTbody.appendChild(tr);
@@ -161,7 +275,44 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(err => showToast(err.message || 'Failed to load Excel sheets', 'error'))
         .finally(() => {
             btnFileNext.disabled = false;
-            btnFileNext.innerHTML = 'Open Navigator <i class="fa-solid fa-arrow-right"></i>';
+            btnFileNext.innerHTML = '<i class="fa-solid fa-table-columns" style="margin-right:6px"></i>Open Navigator <i class="fa-solid fa-arrow-right"></i>';
+        });
+    }
+
+    // ── Step 1 (Local) -> Step 2: Open Navigator from local file ──
+    function openNavigatorFromLocal() {
+        if (!localFileObject) { showToast('No local file selected.', 'error'); return; }
+
+        btnFileNext.disabled = true;
+        btnFileNext.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Parsing File...';
+
+        const formData = new FormData();
+        formData.append('file', localFileObject);
+
+        fetch('/api/local/preview-all', { method: 'POST', body: formData })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) throw new Error(data.error);
+
+            sheetsData = data.sheets;
+            selectedSheets.clear();
+            removedColumns = {};
+            appliedSteps = {};
+
+            navFilenameLabel.textContent = `${excelFileName} [${Object.keys(sheetsData).length}]`;
+            renderNavigatorTree();
+
+            navPreviewTitle.textContent = 'Select an item to preview';
+            navTableThead.innerHTML = '';
+            navTableTbody.innerHTML = '<tr><td class="text-center" style="padding: 40px; color: var(--color-text-muted);">Select a sheet on the left to display its data preview.</td></tr>';
+
+            panelFileSelect.classList.remove('active');
+            panelNavigator.classList.add('active');
+        })
+        .catch(err => showToast(err.message || 'Failed to parse local file', 'error'))
+        .finally(() => {
+            btnFileNext.disabled = false;
+            btnFileNext.innerHTML = '<i class="fa-solid fa-table-columns" style="margin-right:6px"></i>Open Navigator <i class="fa-solid fa-arrow-right"></i>';
         });
     }
 

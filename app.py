@@ -938,6 +938,61 @@ def sync_sharepoint():
         db.session.rollback()
         return jsonify({"success": False, "error": f"Failed to sync SharePoint Excel: {str(e)}"}), 500
 
+# --- LOCAL FILE UPLOAD ENDPOINT ---
+
+@app.route('/api/local/preview-all', methods=['POST'])
+@login_required
+def api_local_preview_all():
+    """Accepts a locally uploaded Excel file and returns columns and first 100 rows of all sheets."""
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    uploaded_file = request.files['file']
+    if uploaded_file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    filename = uploaded_file.filename
+    if not filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({"error": "Only Excel files (.xlsx, .xls) are supported"}), 400
+
+    try:
+        import io
+        file_bytes = uploaded_file.read()
+        xl = pd.ExcelFile(io.BytesIO(file_bytes))
+        sheets = xl.sheet_names
+
+        result = {}
+        for sheet in sheets:
+            if sheet.lower().strip() == 'master data':
+                continue
+
+            df = xl.parse(sheet, nrows=100)
+            columns = [str(col) for col in df.columns.tolist()]
+
+            rows = []
+            for _, row in df.iterrows():
+                row_vals = []
+                for val in row.tolist():
+                    if pd.isna(val):
+                        row_vals.append("")
+                    else:
+                        if isinstance(val, (datetime.date, datetime.datetime)):
+                            row_vals.append(val.strftime('%Y-%m-%d'))
+                        else:
+                            row_vals.append(val)
+                rows.append(row_vals)
+
+            result[sheet] = {"columns": columns, "rows": rows}
+
+        return jsonify({
+            "success": True,
+            "file_name": filename,
+            "file_path": f"local://{filename}",
+            "sheets": result
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse Excel file: {str(e)}"}), 500
+
 
 # --- POWER BI NAVIGATOR & QUERY EDITOR VIEWS ---
 
