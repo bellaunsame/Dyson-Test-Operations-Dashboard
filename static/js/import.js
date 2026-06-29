@@ -645,31 +645,54 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Submit Transformed Data (Close & Apply) ──
     function submitTransformedData() {
         btnEditorApply.disabled = true;
-        btnEditorApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Applying Changes...';
+        btnEditorApply.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving to Projects...';
 
-        const payload = {
-            file_path: selectedFilePath,
-            selected_sheets: Array.from(selectedSheets),
-            removed_columns: removedColumns
-        };
+        if (activeSource === 'local' && localFileObject) {
+            // Local file: send as FormData with the file + config
+            const config = {
+                selected_sheets: Array.from(selectedSheets),
+                removed_columns: removedColumns
+            };
+            const formData = new FormData();
+            formData.append('file', localFileObject);
+            formData.append('config', JSON.stringify(config));
 
-        fetch('/api/sharepoint/load-transformed', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.error) throw new Error(data.error);
-            showToast(data.message, 'success');
-            setTimeout(() => {
-                window.location.href = '/tables';
-            }, 1500);
-        })
-        .catch(err => {
-            showToast(err.message || 'Failed to apply transformations', 'error');
-            btnEditorApply.disabled = false;
-            btnEditorApply.innerHTML = 'Close & Apply';
-        });
+            fetch('/api/local/load-transformed', { method: 'POST', body: formData })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                showToast(data.message, 'success');
+                setTimeout(() => { window.location.href = '/tables'; }, 1500);
+            })
+            .catch(err => {
+                showToast(err.message || 'Failed to import local file', 'error');
+                btnEditorApply.disabled = false;
+                btnEditorApply.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Close & Apply';
+            });
+        } else {
+            // SharePoint file: send as JSON
+            const payload = {
+                file_path: selectedFilePath,
+                selected_sheets: Array.from(selectedSheets),
+                removed_columns: removedColumns
+            };
+
+            fetch('/api/sharepoint/load-transformed', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                showToast(data.message, 'success');
+                setTimeout(() => { window.location.href = '/tables'; }, 1500);
+            })
+            .catch(err => {
+                showToast(err.message || 'Failed to apply transformations', 'error');
+                btnEditorApply.disabled = false;
+                btnEditorApply.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Close & Apply';
+            });
+        }
     }
 });

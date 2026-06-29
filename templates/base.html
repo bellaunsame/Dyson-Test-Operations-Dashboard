@@ -72,6 +72,8 @@
 <body>
     <div class="app-container">
         <div class="dashboard-layout">
+
+
             <!-- SIDEBAR NAVIGATION -->
             <aside class="sidebar">
                 <div class="sidebar-header">
@@ -83,9 +85,9 @@
                 </div>
 
                 <nav class="sidebar-menu">
-                    <a href="/dashboard" class="menu-item {% if active_page == 'dashboard' %}active{% endif %}">
-                        <i class="fa-solid fa-chart-line"></i>
-                        <span>Operations Room</span>
+                    <a href="/chart" class="menu-item {% if active_page == 'chart' %}active{% endif %}">
+                        <i class="fa-solid fa-square-poll-horizontal"></i>
+                        <span>Chart Module</span>
                     </a>
                     <a href="/tables" class="menu-item {% if active_page == 'tables' %}active{% endif %}">
                         <i class="fa-solid fa-table"></i>
@@ -112,10 +114,10 @@
                 <!-- QUICK ACTIONS -->
                 <div class="quick-actions">
                     <h3>QUICK ACTIONS</h3>
-                    <a href="/generate-report" class="btn btn-secondary btn-action" id="btn-pdf-download" download="Daily_Operations_Report.pdf">
+                    <button class="btn btn-secondary btn-action" id="btn-pdf-download-sidebar">
                         <i class="fa-solid fa-file-pdf"></i>
                         <span>Export PDF Report</span>
-                    </a>
+                    </button>
                     <button class="btn btn-accent btn-action" id="btn-email-modal-trigger">
                         <i class="fa-solid fa-envelope"></i>
                         <span>Email Daily Report</span>
@@ -154,6 +156,7 @@
                 <button class="modal-close-btn" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <form id="email-form">
+                <input type="hidden" id="email-project" name="project" value="">
                 <div class="modal-body">
                     <div class="form-group">
                         <label for="email-to">Recipient Email</label>

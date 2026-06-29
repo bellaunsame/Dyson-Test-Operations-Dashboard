@@ -42,6 +42,52 @@ USER_CREDENTIALS = {
     "password": "admin2026"
 }
 
+
+def clean_dataframe_headers(df):
+    """
+    Cleans a pandas DataFrame by checking if the first row contains sub-header-like values
+    (e.g., 'wk', 'day', 'qty') and merging them with the main header (columns).
+    Handles merged/multi-row headers elegantly and returns the cleaned DataFrame.
+    """
+    if df.empty:
+        return df
+
+    first_row = df.iloc[0].tolist()
+    has_sub_header = False
+    sub_header_keywords = {'wk', 'week', 'day', 'qty', 'quantity', 'comment', 'method', 'number', 'start'}
+    
+    for val in first_row:
+        if isinstance(val, str) and val.lower().strip() in sub_header_keywords:
+            has_sub_header = True
+            break
+            
+    if not has_sub_header:
+        return df
+        
+    new_columns = []
+    current_main_header = ""
+    for col_name, sub_name in zip(df.columns, first_row):
+        col_str = str(col_name).strip()
+        sub_str = str(sub_name).strip() if not pd.isna(sub_name) else ""
+        
+        if not col_str.startswith("Unnamed:"):
+            current_main_header = col_str
+            
+        if current_main_header and sub_str:
+            combined = f"{current_main_header}_{sub_str}"
+        elif current_main_header:
+            combined = current_main_header
+        elif sub_str:
+            combined = sub_str
+        else:
+            combined = col_str
+            
+        new_columns.append(combined)
+        
+    df.columns = new_columns
+    df = df.iloc[1:].reset_index(drop=True)
+    return df
+
 # --- DATABASE MODELS ---
 
 class Project(db.Model):
@@ -394,7 +440,7 @@ def login_required(f):
 @app.route('/')
 @login_required
 def index():
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('tables'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -405,7 +451,7 @@ def login():
         if username == USER_CREDENTIALS["username"] and password == USER_CREDENTIALS["password"]:
             session['logged_in'] = True
             session['username'] = username
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('tables'))
         else:
             error = "Invalid credentials. Please try again."
     return render_template('login.html', error=error)
@@ -418,7 +464,12 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', username=session.get('username'), active_page='dashboard')
+    return redirect(url_for('chart_page'))
+
+@app.route('/chart')
+@login_required
+def chart_page():
+    return render_template('chart.html', username=session.get('username'), active_page='chart')
 
 @app.route('/tables')
 @login_required
@@ -629,7 +680,8 @@ def api_sharepoint_headers():
             return jsonify({"error": "No worksheets found in the Excel file"}), 400
             
         # Parse headers from the first sheet
-        df = xl.parse(sheets[0], nrows=1)
+        df = xl.parse(sheets[0], nrows=5)
+        df = clean_dataframe_headers(df)
         headers = [str(col) for col in df.columns.tolist()]
         
         return jsonify({
@@ -702,6 +754,7 @@ def api_sharepoint_sync():
             
             # Parse worksheet
             df = xl.parse(sheet_name)
+            df = clean_dataframe_headers(df)
             
             imported_count = 0
             for index, row in df.iterrows():
@@ -810,6 +863,7 @@ def sync_sharepoint():
                 
             # Parse sheet
             df = xl.parse(sheet_name)
+            df = clean_dataframe_headers(df)
             
             # Filter out removed columns
             removed_cols = removed_cols_map.get(sheet_name, [])
@@ -967,6 +1021,7 @@ def api_local_preview_all():
                 continue
 
             df = xl.parse(sheet, nrows=100)
+            df = clean_dataframe_headers(df)
             columns = [str(col) for col in df.columns.tolist()]
 
             rows = []
@@ -994,6 +1049,197 @@ def api_local_preview_all():
         return jsonify({"error": f"Failed to parse Excel file: {str(e)}"}), 500
 
 
+# --- SHARED TRANSFORMATION HELPER ---
+
+def _import_sheets_to_db(xl, selected_sheets, removed_cols_map, file_path):
+    """
+    Core transformation helper. Given a pd.ExcelFile, list of selected sheet names,
+    a dict of removed columns per sheet, and the original file_path string,
+    this function creates/updates Project records and imports TestRecord rows.
+    Returns (synced_projects, total_records_imported).
+    """
+    fuzzy_rules = {
+        "category": ['category', 'test category', 'group', 'device', 'product'],
+        "test_method": ['method', 'test method', 'method name', 'name'],
+        "test_number": ['number', 'test number', 'test #', 'ref', 'ref number', 'code'],
+        "start_date": ['start', 'start date', 'date', 'timeline start'],
+        "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
+        "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
+        "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks'],
+        "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days'],
+        "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity'],
+        "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks'],
+        "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days'],
+        "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity'],
+        "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks'],
+        "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days'],
+        "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity'],
+        "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks'],
+        "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days'],
+        "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity'],
+    }
+
+    synced_projects = []
+    total_records_imported = 0
+
+    for sheet_name in selected_sheets:
+        if sheet_name not in xl.sheet_names:
+            continue
+
+        df = xl.parse(sheet_name)
+        df = clean_dataframe_headers(df)
+        removed_cols = removed_cols_map.get(sheet_name, [])
+        active_cols = [col for col in df.columns if str(col) not in removed_cols]
+
+        # Auto fuzzy mapping
+        mapping = {}
+        for field, rules in fuzzy_rules.items():
+            for col in active_cols:
+                col_lower = str(col).lower().strip()
+                if any(r == col_lower or r in col_lower for r in rules):
+                    mapping[field] = str(col)
+                    break
+
+        # Upsert Project
+        proj = Project.query.filter_by(name=sheet_name).first()
+        if not proj:
+            proj = Project(
+                name=sheet_name,
+                description=f"Imported from {file_path}",
+                status="Active",
+                created_at=datetime.date.today().strftime('%m/%d/%Y')
+            )
+            db.session.add(proj)
+        else:
+            proj.description = f"Imported from {file_path}"
+        db.session.commit()
+
+        # Clear and reimport rows
+        TestRecord.query.filter_by(project_name=sheet_name).delete()
+
+        imported_count = 0
+        for index, row in df.iterrows():
+            def get_val(field, default=None, is_int=False):
+                col = mapping.get(field)
+                if not col or col not in df.columns:
+                    return default
+                val = row[col]
+                if pd.isna(val):
+                    return default
+                if is_int:
+                    try:
+                        return int(float(val))
+                    except (ValueError, TypeError):
+                        return 0
+                return str(val)
+
+            start_date_val = get_val("start_date", "")
+            if start_date_val:
+                try:
+                    col_mapping = mapping.get("start_date")
+                    raw_date = row[col_mapping]
+                    if hasattr(raw_date, 'strftime'):
+                        start_date_val = raw_date.strftime('%Y-%m-%d')
+                    else:
+                        start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
+                except Exception:
+                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+            else:
+                start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+
+            rec = TestRecord(
+                project_name=sheet_name,
+                category=get_val("category", "General"),
+                test_method=get_val("test_method", "Testing"),
+                test_number=get_val("test_number", "TM-000"),
+                start_date=start_date_val,
+                proto_weeks=get_val("proto_weeks", 0, is_int=True),
+                proto_days=get_val("proto_days", 0, is_int=True),
+                proto_qty=get_val("proto_qty", 0, is_int=True),
+                dvt_weeks=get_val("dvt_weeks", 0, is_int=True),
+                dvt_days=get_val("dvt_days", 0, is_int=True),
+                dvt_qty=get_val("dvt_qty", 0, is_int=True),
+                evt_weeks=get_val("evt_weeks", 0, is_int=True),
+                evt_days=get_val("evt_days", 0, is_int=True),
+                evt_qty=get_val("evt_qty", 0, is_int=True),
+                pvt_weeks=get_val("pvt_weeks", 0, is_int=True),
+                pvt_days=get_val("pvt_days", 0, is_int=True),
+                pvt_qty=get_val("pvt_qty", 0, is_int=True),
+                defect_qty=get_val("defect_qty", 0, is_int=True),
+                comments=get_val("comments", "")
+            )
+            db.session.add(rec)
+            imported_count += 1
+
+        total_records_imported += imported_count
+        synced_projects.append(sheet_name)
+
+    # Save global sync config
+    import json as _json
+    mapping_record = ExcelMapping.query.filter_by(project_name='GLOBAL_SYNC').first()
+    if not mapping_record:
+        mapping_record = ExcelMapping(project_name='GLOBAL_SYNC')
+        db.session.add(mapping_record)
+    mapping_record.file_path = file_path
+    mapping_record.sheet_name = 'ALL'
+    mapping_record.mapping_json = _json.dumps({
+        "selected_sheets": selected_sheets,
+        "removed_columns": removed_cols_map
+    })
+    db.session.commit()
+
+    return synced_projects, total_records_imported
+
+
+@app.route('/api/local/load-transformed', methods=['POST'])
+@login_required
+def api_local_load_transformed():
+    """Imports selected sheets from a locally uploaded Excel file into the Project Table."""
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    uploaded_file = request.files['file']
+    if uploaded_file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    filename = uploaded_file.filename
+    if not filename.lower().endswith(('.xlsx', '.xls')):
+        return jsonify({"error": "Only Excel files (.xlsx, .xls) are supported"}), 400
+
+    import json as _json
+    import io
+    config_raw = request.form.get('config', '{}')
+    try:
+        config = _json.loads(config_raw)
+    except Exception:
+        config = {}
+
+    selected_sheets = config.get('selected_sheets', [])
+    removed_cols_map = config.get('removed_columns', {})
+
+    try:
+        file_bytes = uploaded_file.read()
+        xl = pd.ExcelFile(io.BytesIO(file_bytes))
+
+        if not selected_sheets:
+            # Default to all non-master sheets
+            selected_sheets = [s for s in xl.sheet_names if s.lower().strip() != 'master data']
+
+        synced_projects, total_records = _import_sheets_to_db(
+            xl, selected_sheets, removed_cols_map, f"local://{filename}"
+        )
+
+        return jsonify({
+            "success": True,
+            "message": f"Successfully imported {len(synced_projects)} project(s) with {total_records} records from {filename}.",
+            "projects": synced_projects,
+            "count": total_records
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to import local file: {str(e)}"}), 500
+
+
 # --- POWER BI NAVIGATOR & QUERY EDITOR VIEWS ---
 
 @app.route('/api/sharepoint/preview-all', methods=['POST'])
@@ -1019,6 +1265,7 @@ def api_sharepoint_preview_all():
                 continue
                 
             df = xl.parse(sheet, nrows=100)
+            df = clean_dataframe_headers(df)
             
             # Convert all column names to string
             columns = [str(col) for col in df.columns.tolist()]
@@ -1077,6 +1324,7 @@ def api_sharepoint_load_transformed():
                 
             # Parse sheet
             df = xl.parse(sheet_name)
+            df = clean_dataframe_headers(df)
             
             # Filter out removed columns
             removed_cols = removed_cols_map.get(sheet_name, [])
@@ -1654,7 +1902,7 @@ def generate_report():
     pdf_filename = os.path.join(UPLOAD_FOLDER, "Daily_Operations_Report.pdf")
     try:
         generate_pdf_report(pdf_filename, project_name)
-        download_name = f"Daily_Operations_Report_{project_name}.pdf" if project_name else "Daily_Operations_Report.pdf"
+        download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
         return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
@@ -1666,14 +1914,77 @@ def generate_report():
 def send_email():
     recipient = request.form.get('recipient') or os.getenv('MAIL_RECIPIENT', 'operations-manager@ops.com')
     subject = request.form.get('subject') or f"Daily Test Operations Report - {datetime.date.today().strftime('%Y-%m-%d')}"
-    body = """Dear Team,
+    body = request.form.get('body') or """Dear Team,
 
 Please find attached the Daily Test Operations Project Status Report containing the latest project tasks, timeline progression, and completion rates.
 
-This email was auto-generated by the Operations Dashboard.
-"""
-    # Simply return success for simulation
-    return jsonify({"success": True, "message": f"Email successfully sent to {recipient}!"})
+This email was auto-generated by the Operations Dashboard."""
+
+    project_name = request.form.get('project')
+
+    # Step 1: Always generate the PDF
+    pdf_filename = os.path.join(UPLOAD_FOLDER, "email_report.pdf")
+    try:
+        generate_pdf_report(pdf_filename, project_name)
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate PDF for email: {str(e)}"}), 500
+
+    # Step 2: Attempt real SMTP send if credentials are configured
+    mail_server = os.getenv('MAIL_SERVER')
+    mail_username = os.getenv('MAIL_USERNAME')
+    mail_password = os.getenv('MAIL_PASSWORD')
+    mail_sender = os.getenv('MAIL_DEFAULT_SENDER', mail_username)
+    mail_port = int(os.getenv('MAIL_PORT', 587))
+    mail_tls = os.getenv('MAIL_USE_TLS', 'True').lower() == 'true'
+
+    if mail_server and mail_username and mail_password:
+        try:
+            import smtplib
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            from email.mime.application import MIMEApplication
+
+            msg = MIMEMultipart()
+            msg['From'] = mail_sender
+            msg['To'] = recipient
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
+
+            with open(pdf_filename, 'rb') as f:
+                attachment = MIMEApplication(f.read(), _subtype='pdf')
+                pdf_download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
+                attachment.add_header('Content-Disposition', 'attachment', filename=pdf_download_name)
+                msg.attach(attachment)
+
+            with smtplib.SMTP(mail_server, mail_port) as smtp:
+                if mail_tls:
+                    smtp.starttls()
+                smtp.login(mail_username, mail_password)
+                smtp.sendmail(mail_sender, recipient, msg.as_string())
+
+            return jsonify({
+                "success": True,
+                "mode": "smtp",
+                "message": f"Email with PDF report successfully sent to {recipient}!"
+            })
+        except Exception as e:
+            # Fall through to simulation on SMTP error
+            return jsonify({
+                "success": True,
+                "mode": "simulation",
+                "message": f"SMTP error ({str(e)}). Email simulated. PDF was generated successfully.",
+                "pdf_generated": True
+            })
+
+    # Step 3: Simulation mode (no SMTP configured)
+    return jsonify({
+        "success": True,
+        "mode": "simulation",
+        "message": f"Email simulated (no SMTP configured). PDF report generated and would be sent to {recipient}.",
+        "pdf_generated": True,
+        "recipient": recipient,
+        "subject": subject
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002, debug=True)

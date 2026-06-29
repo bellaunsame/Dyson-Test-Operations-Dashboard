@@ -702,11 +702,61 @@ document.addEventListener('DOMContentLoaded', () => {
     // EMAIL MODAL & AUTOMATION
     // ==========================================
 
+    // Helper to get active project from current page context
+    function getActiveProjectContext() {
+        const path = window.location.pathname;
+        if (path.startsWith('/tables/')) {
+            // Project Detail page: extract from path
+            return decodeURIComponent(path.split('/').pop());
+        }
+        const chartSelect = document.getElementById('gantt-project-select');
+        if (chartSelect && chartSelect.value) {
+            // Chart Module page: get from dropdown
+            return chartSelect.value;
+        }
+        const dashboardSelect = document.getElementById('project-select');
+        if (dashboardSelect && dashboardSelect.value) {
+            // Old dashboard page (if any)
+            return dashboardSelect.value;
+        }
+        return '';
+    }
+
+    // Sidebar PDF Export
+    const btnPdfDownloadSidebar = document.getElementById('btn-pdf-download-sidebar');
+    if (btnPdfDownloadSidebar) {
+        btnPdfDownloadSidebar.addEventListener('click', () => {
+            const activeProj = getActiveProjectContext();
+            if (!activeProj) {
+                showToast('Please select or open a project first to export its Gantt report.', 'info');
+                return;
+            }
+            triggerPdfDownload(activeProj);
+        });
+    }
+
+    // ==========================================
+    // EMAIL MODAL & AUTOMATION
+    // ==========================================
+
     if (btnEmailModalTrigger) {
         btnEmailModalTrigger.addEventListener('click', () => {
+            const activeProj = getActiveProjectContext();
+            const projectInput = document.getElementById('email-project');
+            if (projectInput) {
+                projectInput.value = activeProj;
+            }
+
             emailModal.classList.add('active');
             const formattedDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-            document.getElementById('email-subject').value = `Daily Test Operations Report - ${formattedDate}`;
+            let subjectText = `Daily Test Operations Report - ${formattedDate}`;
+            if (activeProj) {
+                subjectText = `Project ${activeProj} Test Operations Report - ${formattedDate}`;
+                document.querySelector('.attachment-details span').textContent = `Gantt_Report_${activeProj}.pdf`;
+            } else {
+                document.querySelector('.attachment-details span').textContent = `Operations_Report.pdf`;
+            }
+            document.getElementById('email-subject').value = subjectText;
         });
     }
 
@@ -724,6 +774,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const recipient = document.getElementById('email-to').value.trim();
             const subject = document.getElementById('email-subject').value.trim();
             const body = document.getElementById('email-body').value.trim();
+            const projectVal = document.getElementById('email-project').value;
 
             const btnSubmit = emailForm.querySelector('button[type="submit"]');
             btnSubmit.disabled = true;
@@ -733,6 +784,9 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('recipient', recipient);
             formData.append('subject', subject);
             formData.append('body', body);
+            if (projectVal) {
+                formData.append('project', projectVal);
+            }
 
             fetch('/send-email', {
                 method: 'POST',
@@ -748,12 +802,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const logContent = document.getElementById('email-log-content');
                 if (logModal && logContent) {
                     const timestamp = new Date().toISOString();
+                    const pdfName = projectVal ? `Gantt_Report_${projectVal}.pdf` : 'Operations_Report.pdf';
                     logContent.textContent = `[SMTP SIMULATOR - ${timestamp}]
 Connecting to mail server... SUCCESS (Simulated)
 FROM: operations-dashboard@ops.com
 TO: ${recipient}
 SUBJECT: ${subject}
-ATTACHMENTS: Daily_Operations_Report.pdf (Generated)
+ATTACHMENTS: ${pdfName} (Generated)
 BODY:
 ${body}
 --------------------------------------------------
