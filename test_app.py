@@ -3,7 +3,7 @@ import unittest
 import datetime
 from app import app, db, ExcelDataStore, Project, TestRecord, ExcelMapping, generate_pdf_report, UPLOAD_FOLDER
 
-class TestDysonDashboardBackend(unittest.TestCase):
+class TestOpsDashboardBackend(unittest.TestCase):
     
     def setUp(self):
         # Configure app for testing with an in-memory SQLite database
@@ -131,7 +131,7 @@ class TestDysonDashboardBackend(unittest.TestCase):
         """Test that the ExcelMapping model can save and retrieve mapping configurations."""
         mapping = ExcelMapping(
             project_name="893",
-            file_path="/Shared Documents/Dyson_Milestones_893.xlsx",
+            file_path="/Shared Documents/Ops_Milestones_893.xlsx",
             sheet_name="Sheet1",
             mapping_json='{"Category": "Test Category", "Test Method": "Method Name"}'
         )
@@ -151,7 +151,7 @@ class TestDysonDashboardBackend(unittest.TestCase):
             sess['username'] = 'admin'
  
         payload = {
-            "file_path": "/Shared Documents/Dyson_Milestones_893.xlsx",
+            "file_path": "/Shared Documents/Ops_Milestones_893.xlsx",
             "selected_sheets": ["Sheet1"],
             "removed_columns": {
                 "Sheet1": ["Rejections_Notes"]

@@ -1,5 +1,5 @@
 // ==========================================
-// DYSON DASHBOARD - FRONTEND LOGIC
+// OPS DASHBOARD - FRONTEND LOGIC
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -750,7 +750,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const timestamp = new Date().toISOString();
                     logContent.textContent = `[SMTP SIMULATOR - ${timestamp}]
 Connecting to mail server... SUCCESS (Simulated)
-FROM: operations-dashboard@dyson.com
+FROM: operations-dashboard@ops.com
 TO: ${recipient}
 SUBJECT: ${subject}
 ATTACHMENTS: Daily_Operations_Report.pdf (Generated)

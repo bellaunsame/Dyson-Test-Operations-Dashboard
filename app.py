@@ -17,7 +17,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 app = Flask(__name__)
-app.secret_key = "super_secret_key_for_dyson_operations"
+app.secret_key = "super_secret_key_for_ops_operations"
 
 # Configure App Data and Upload Folders
 UPLOAD_FOLDER = os.path.join(app.root_path, 'uploads')
@@ -30,7 +30,7 @@ is_testing = 'unittest' in sys.modules or app.config.get('TESTING', False)
 if is_testing:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
 else:
-    DB_PATH = os.path.join(UPLOAD_FOLDER, 'dyson_ops.db')
+    DB_PATH = os.path.join(UPLOAD_FOLDER, 'ops_dashboard.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -39,7 +39,7 @@ db = SQLAlchemy(app)
 # User authentication credentials
 USER_CREDENTIALS = {
     "username": "admin",
-    "password": "dyson2026"
+    "password": "admin2026"
 }
 
 # --- DATABASE MODELS ---
@@ -173,7 +173,7 @@ class SharePointService:
         # Fallback Mock Files if SharePoint/Graph is not configured or fails
         mock_files = [
             {"name": "Phase_Test_Method_Master_Data.xlsx", "path": "Phase_Test_Method_Master_Data.xlsx", "size": "11.3 KB", "modified": "2026-06-29"},
-            {"name": "Dyson_Milestones_893.xlsx", "path": "Dyson_Milestones_893.xlsx", "size": "45 KB", "modified": "2026-06-29"},
+            {"name": "Ops_Milestones_893.xlsx", "path": "Ops_Milestones_893.xlsx", "size": "45 KB", "modified": "2026-06-29"},
             {"name": "Vacuum_990_Schedule.xlsx", "path": "Vacuum_990_Schedule.xlsx", "size": "58 KB", "modified": "2026-06-29"}
         ]
         
@@ -1280,7 +1280,7 @@ def api_chat():
 
     # --- Default / help response ---
     help_text = (
-        "🤖 **Dyson AI Assistant** — I can help you with:\n"
+        "🤖 **AI Assistant** — I can help you with:\n"
         "• **'List all projects'** — see all active projects\n"
         "• **'Summary of project 893'** — get stats for a specific project\n"
         "• **'Generate report for 990'** — create and download a PDF\n"
@@ -1609,7 +1609,7 @@ def generate_report():
 @app.route('/send-email', methods=['POST'])
 @login_required
 def send_email():
-    recipient = request.form.get('recipient') or os.getenv('MAIL_RECIPIENT', 'operations-manager@dyson.com')
+    recipient = request.form.get('recipient') or os.getenv('MAIL_RECIPIENT', 'operations-manager@ops.com')
     subject = request.form.get('subject') or f"Daily Test Operations Report - {datetime.date.today().strftime('%Y-%m-%d')}"
     body = """Dear Team,
 

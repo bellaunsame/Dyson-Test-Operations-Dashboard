@@ -1,5 +1,5 @@
 /* ==========================================
-   DYSON DASHBOARD - CORE DESIGN SYSTEM
+   OPS DASHBOARD - CORE DESIGN SYSTEM
    ========================================== */
 
 :root {
@@ -16,7 +16,7 @@
     --color-primary: #00539C;      /* Prussian Blue / Nickel Accent */
     --color-primary-glow: rgba(0, 83, 156, 0.35);
     
-    --color-accent: #D6257D;       /* Dyson Fuchsia Pink */
+    --color-accent: #D6257D;       /* Accent Fuchsia Pink */
     --color-accent-glow: rgba(214, 37, 125, 0.35);
     
     --color-success: #34c759;      /* Emerald Green */
@@ -611,20 +611,20 @@ button {
     font-size: 13px;
 }
 
-/* --- DYSON TABLE --- */
+/* --- OPS TABLE --- */
 .table-responsive {
     width: 100%;
     overflow-x: auto;
 }
 
-.dyson-table {
+.ops-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 14px;
     text-align: left;
 }
 
-.dyson-table th {
+.ops-table th {
     background-color: rgba(255,255,255,0.03);
     color: var(--color-text-muted);
     font-weight: 600;
@@ -635,17 +635,17 @@ button {
     border-bottom: 2px solid var(--color-border);
 }
 
-.dyson-table td {
+.ops-table td {
     padding: 16px;
     border-bottom: 1px solid var(--color-border);
     vertical-align: middle;
 }
 
-.dyson-table tbody tr {
+.ops-table tbody tr {
     transition: background-color var(--transition-speed);
 }
 
-.dyson-table tbody tr:hover {
+.ops-table tbody tr:hover {
     background-color: rgba(255,255,255,0.01);
 }
 
@@ -1660,18 +1660,18 @@ button {
     background-color: var(--color-card-bg) !important;
 }
 
-.dyson-table th {
+.ops-table th {
     text-align: center;
     vertical-align: middle;
     border: 1px solid var(--color-border) !important;
 }
 
-.dyson-table td {
+.ops-table td {
     border: 1px solid var(--color-border) !important;
     vertical-align: middle;
 }
 
-.dyson-table tbody tr:hover {
+.ops-table tbody tr:hover {
     background-color: rgba(255, 255, 255, 0.01);
 }
 

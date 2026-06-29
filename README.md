@@ -1,13 +1,13 @@
-# Dyson Operations Dashboard
+# Test Operations Dashboard
 
-A premium, full-stack web application designed for Dyson's internal engineering operations. The dashboard allows project leads to manage product development milestones, visualize sprint timelines with automated Gantt charts, generate daily status reports, and query the project database using an integrated AI assistant.
+A premium, full-stack web application designed for internal engineering operations. The dashboard allows project leads to manage product development milestones, visualize sprint timelines with automated Gantt charts, generate daily status reports, and query the project database using an integrated AI assistant.
 
 ---
 
 ## 🧠 Key Features
 
 1. **AI Operations Assistant**
-   - An integrated floating AI chatbot (`Dyson AI Assistant`) that queries the active task database in real-time.
+   - An integrated floating AI chatbot (`AI Assistant`) that queries the active task database in real-time.
    - Answers questions regarding task counts, average progress, overdue deadlines, and owner teams.
 
 2. **Interactive Gantt Chart**
@@ -33,7 +33,7 @@ A premium, full-stack web application designed for Dyson's internal engineering 
 ## ⚙️ Tech Stack
 
 - **Backend:** Python (Flask), Gunicorn, pandas, openpyxl, ReportLab, Flask-Mail, python-dotenv
-- **Frontend:** HTML5, CSS3 (Vanilla), JavaScript (ES6+), Jinja2
+- **Frontend:** HTML5, CSS3 (Vanilla), JavaScript (ES6+)
 - **Visualization:** Chart.js (with Date Adapter)
 
 ---
@@ -56,7 +56,7 @@ test-ops-dashboard/
 │
 ├── templates/
 │   ├── base.html           # Core HTML skeleton (Google Fonts, Chart.js)
-│   ├── home.html           # Branded landing page
+│   ├── home.html           # Landing page
 │   ├── login.html          # Authentication page
 │   └── dashboard.html      # Main operational interface & AI panel
 │
@@ -68,10 +68,9 @@ test-ops-dashboard/
 
 ## 🚀 Local Setup & Installation
 
-### 1. Clone and Navigate
+### 1. Navigate to Project
 ```bash
-git clone https://github.com/bellaunsame/Dyson-Test-Operations-Dashboard.git
-cd Dyson-Test-Operations-Dashboard/test-ops-dashboard
+cd test-ops-dashboard
 ```
 
 ### 2. Set Up Virtual Environment
@@ -117,9 +116,9 @@ python -m unittest test_app.py
 
 To access the dashboard, use the following internal credentials:
 - **Username:** `admin`
-- **Password:** `dyson2026`
+- **Password:** `admin2026`
 
 ---
 
 ## 🔒 Confidentiality
-*This software is proprietary and confidential. For internal Dyson Technology Operations use only.*
+*This software is proprietary and confidential. For internal Technology Operations use only.*
