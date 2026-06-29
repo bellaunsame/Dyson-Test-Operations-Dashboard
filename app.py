@@ -10,6 +10,10 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from flask_sqlalchemy import SQLAlchemy
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 # Load environment variables
 load_dotenv()
@@ -33,8 +37,14 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 EXCEL_PATH = os.path.join(UPLOAD_FOLDER, 'tasks.xlsx')
 
 # Configure Flask-SQLAlchemy
-DB_PATH = os.path.join(UPLOAD_FOLDER, 'dyson_ops.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+import sys
+is_testing = 'unittest' in sys.modules or app.config.get('TESTING', False)
+if is_testing:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+else:
+    DB_PATH = os.path.join(UPLOAD_FOLDER, 'dyson_ops.db')
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -53,8 +63,9 @@ class Task(db.Model):
     duration = db.Column(db.Integer, nullable=False)
     end_date = db.Column(db.String(10), nullable=False)
     progress = db.Column(db.Integer, nullable=False)
-    owner = db.Column(db.String(50), nullable=False)
+    owner = db.Column(db.String(200), nullable=False)  # Extended length for comments
     status = db.Column(db.String(20), nullable=False)
+    phase = db.Column(db.String(20), nullable=False, default="Proto")
 
     def to_dict(self):
         return {
@@ -65,7 +76,8 @@ class Task(db.Model):
             "End Date": self.end_date,
             "Progress": self.progress,
             "Owner": self.owner,
-            "Status": self.status
+            "Status": self.status,
+            "Phase": self.phase
         }
 
 # --- EXCEL DATA STORE (SQLite Wrapper) ---
@@ -87,11 +99,9 @@ class ExcelDataStore:
                         status = row.get("Status", "Not Started")
                         if progress == 100:
                             status = "Completed"
-                        elif progress > 0:
+                        elif progress > 0 and status != "Rejected":
                             status = "In Progress"
-                        else:
-                            status = "Not Started"
-                            
+                        
                         start_date = str(row["Start Date"])
                         if " " in start_date:
                             start_date = start_date.split(" ")[0]
@@ -107,7 +117,8 @@ class ExcelDataStore:
                             end_date=end_date,
                             progress=progress,
                             owner=row["Owner"],
-                            status=status
+                            status=status,
+                            phase=row.get("Phase", "Proto")
                         )
                         db.session.add(task)
                     db.session.commit()
@@ -116,17 +127,18 @@ class ExcelDataStore:
                     print(f"Error migrating from Excel: {e}")
                     db.session.rollback()
             else:
-                print("No Excel file found. Seeding database with initial Dyson sample data...")
+                print("No Excel file found. Seeding database with initial sample data...")
                 sample_tasks = [
                     {
                         "task_id": "TSK-001",
-                        "task_name": "Dyson V15 Cyclone Engine Optimization",
+                        "task_name": "V15 Cyclone Engine Optimization",
                         "start_date": "2026-07-01",
                         "duration": 15,
                         "end_date": "2026-07-16",
                         "progress": 80,
                         "owner": "Engineering Team",
-                        "status": "In Progress"
+                        "status": "In Progress",
+                        "phase": "Proto"
                     },
                     {
                         "task_id": "TSK-002",
@@ -136,7 +148,8 @@ class ExcelDataStore:
                         "end_date": "2026-07-30",
                         "progress": 45,
                         "owner": "Acoustics Team",
-                        "status": "In Progress"
+                        "status": "In Progress",
+                        "phase": "EVT"
                     },
                     {
                         "task_id": "TSK-003",
@@ -146,7 +159,8 @@ class ExcelDataStore:
                         "end_date": "2026-07-30",
                         "progress": 10,
                         "owner": "Software Team",
-                        "status": "In Progress"
+                        "status": "In Progress",
+                        "phase": "DVT"
                     },
                     {
                         "task_id": "TSK-004",
@@ -156,7 +170,30 @@ class ExcelDataStore:
                         "end_date": "2026-08-02",
                         "progress": 0,
                         "owner": "Thermal Team",
-                        "status": "Not Started"
+                        "status": "Not Started",
+                        "phase": "PVT"
+                    },
+                    {
+                        "task_id": "TSK-005",
+                        "task_name": "V15 Cyclone Airflow Restriction",
+                        "start_date": "2026-07-05",
+                        "duration": 10,
+                        "end_date": "2026-07-15",
+                        "progress": 30,
+                        "owner": "Inlet valve failed to open at 40kPa, causing motor stall.",
+                        "status": "Rejected",
+                        "phase": "EVT"
+                    },
+                    {
+                        "task_id": "TSK-006",
+                        "task_name": "Supersonic Heater Thermal Runaway",
+                        "start_date": "2026-07-12",
+                        "duration": 8,
+                        "end_date": "2026-07-20",
+                        "progress": 10,
+                        "owner": "Thermal fuse did not blow at 150C. Redesigning sensor placement.",
+                        "status": "Rejected",
+                        "phase": "DVT"
                     }
                 ]
                 for st in sample_tasks:
@@ -189,13 +226,16 @@ class ExcelDataStore:
             end_dt = start_dt + datetime.timedelta(days=int(task_data["Duration"]))
             task_data["End Date"] = end_dt.strftime("%Y-%m-%d")
             
+            # Save the phase and status directly from input
             progress = int(task_data["Progress"])
-            if progress == 100:
-                task_data["Status"] = "Completed"
-            elif progress > 0:
-                task_data["Status"] = "In Progress"
-            else:
-                task_data["Status"] = "Not Started"
+            phase = task_data.get("Phase", "Proto")
+            status = task_data.get("Status", "Not Started")
+            
+            # If progress is 100, ensure it's marked completed (unless rejected)
+            if progress == 100 and status != "Rejected":
+                status = "Completed"
+            elif progress > 0 and status == "Not Started":
+                status = "In Progress"
 
             task_id = task_data.get("Task ID")
             task = None
@@ -209,7 +249,8 @@ class ExcelDataStore:
                 task.end_date = task_data["End Date"]
                 task.progress = progress
                 task.owner = task_data["Owner"]
-                task.status = task_data["Status"]
+                task.status = status
+                task.phase = phase
             else:
                 if not task_id:
                     next_num = Task.query.count() + 1
@@ -226,7 +267,8 @@ class ExcelDataStore:
                     end_date=task_data["End Date"],
                     progress=progress,
                     owner=task_data["Owner"],
-                    status=task_data["Status"]
+                    status=status,
+                    phase=phase
                 )
                 db.session.add(task)
                 
@@ -253,9 +295,10 @@ class ExcelDataStore:
             db.session.rollback()
             return False
 
-# Initialize the database on startup
-with app.app_context():
-    ExcelDataStore.initialize_db()
+# Initialize the database on startup (only if not testing)
+if not is_testing:
+    with app.app_context():
+        ExcelDataStore.initialize_db()
 
 
 # --- DECORATORS / HELPER FUNCTIONS ---
@@ -331,7 +374,9 @@ def add_task_api():
             "Start Date": data["Start Date"],
             "Duration": int(data["Duration"]),
             "Progress": int(data["Progress"]),
-            "Owner": data["Owner"]
+            "Owner": data["Owner"],
+            "Status": data.get("Status", "Not Started"),
+            "Phase": data.get("Phase", "Proto")
         }
         
         saved_task = ExcelDataStore.save_task(task_data)
@@ -361,7 +406,9 @@ def update_task_api(task_id):
             "Start Date": data["Start Date"],
             "Duration": int(data["Duration"]),
             "Progress": int(data["Progress"]),
-            "Owner": data["Owner"]
+            "Owner": data["Owner"],
+            "Status": data.get("Status", "Not Started"),
+            "Phase": data.get("Phase", "Proto")
         }
         
         saved_task = ExcelDataStore.save_task(task_data)
@@ -406,26 +453,103 @@ def sync_sharepoint():
         }), 500
 
 
-# --- PDF REPORT GENERATION ---
+# --- GANTT CHART GENERATION ---
+def generate_gantt_chart_image(tasks, filepath):
+    """Generates a Gantt chart image using Matplotlib and saves it to filepath."""
+    if not tasks:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.text(0.5, 0.5, "No active tasks to display", 
+                horizontalalignment='center', verticalalignment='center', fontsize=12)
+        ax.set_axis_off()
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.close()
+        return
 
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    # Custom colored phases
+    phase_colors = {
+        "Proto": "#00539C",  # Prussian Blue
+        "EVT": "#EE7623",    # Orange
+        "DVT": "#00A650",    # Green
+        "PVT": "#D6257D"     # Fuchsia Accent
+    }
+    default_color = "#888888"
+    
+    y_labels = []
+    y_ticks = []
+    
+    # Render Gantt bars (reversed to show top-down)
+    for idx, t in enumerate(reversed(tasks)):
+        try:
+            start_date = datetime.datetime.strptime(t["Start Date"], "%Y-%m-%d")
+            end_date = datetime.datetime.strptime(t["End Date"], "%Y-%m-%d")
+        except Exception:
+            continue
+            
+        phase = t.get("Phase", "Proto")
+        color = phase_colors.get(phase, default_color)
+        
+        # Draw the bar representing the schedule duration
+        ax.barh(idx, (end_date - start_date).days, left=start_date, 
+                color=color, edgecolor='none', height=0.4, alpha=0.95)
+        
+        # Display product name and its test phase on the Y axis
+        y_labels.append(f"{t['Task Name']} ({phase})")
+        y_ticks.append(idx)
+        
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels(y_labels, fontsize=9, fontweight='bold', color='#121212')
+    
+    # Configure X-axis as dates
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=7))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    plt.xticks(rotation=30, fontsize=8, color='#555555')
+    
+    # Styling
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color('#cccccc')
+    ax.spines['bottom'].set_color('#cccccc')
+    ax.grid(axis='x', linestyle='--', alpha=0.5, color='#dddddd')
+    
+    # Legend
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor=color, label=phase) for phase, color in phase_colors.items()]
+    ax.legend(handles=legend_elements, loc='upper right', frameon=True, facecolor='#ffffff', edgecolor='#e5e5e7', fontsize=8)
+    
+    plt.title("Test Operations Schedule by Phase", fontsize=12, fontweight='bold', pad=15, color='#121212')
+    plt.tight_layout()
+    plt.savefig(filepath, dpi=300)
+    plt.close()
+
+
+# --- PDF REPORT GENERATION ---
 def generate_pdf_report(filename):
-    """Generates a styled Dyson Operations PDF report using ReportLab."""
+    """Generates a styled Test Operations PDF report containing a Gantt chart and rejected products."""
+    # Fetch all tasks from SQLite database
+    tasks = ExcelDataStore.get_tasks()
+    
+    # 1. Generate the Gantt Chart Image
+    gantt_image_path = os.path.join(UPLOAD_FOLDER, "gantt_chart_report.png")
+    generate_gantt_chart_image(tasks, gantt_image_path)
+    
     doc = SimpleDocTemplate(filename, pagesize=letter,
                             rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
     story = []
     styles = getSampleStyleSheet()
     
-    # Custom Dyson color palette
+    # Custom color palette (Removing Dyson branding, generic technical theme)
     charcoal = colors.HexColor("#121212")
     steel_gray = colors.HexColor("#555555")
     prussian_blue = colors.HexColor("#00539C")
-    iron_pink = colors.HexColor("#D6257D")
     light_bg = colors.HexColor("#F9F9FB")
     border_color = colors.HexColor("#E5E5E7")
+    danger_red = colors.HexColor("#C0392B")
     
     # Custom styles
     title_style = ParagraphStyle(
-        'DysonTitle',
+        'OpsTitle',
         parent=styles['Heading1'],
         fontSize=24,
         leading=28,
@@ -435,7 +559,7 @@ def generate_pdf_report(filename):
     )
     
     subtitle_style = ParagraphStyle(
-        'DysonSubtitle',
+        'OpsSubtitle',
         parent=styles['Normal'],
         fontSize=10,
         leading=14,
@@ -445,18 +569,28 @@ def generate_pdf_report(filename):
     )
     
     section_title_style = ParagraphStyle(
-        'DysonSection',
+        'OpsSection',
         parent=styles['Heading2'],
         fontSize=14,
         leading=18,
         textColor=prussian_blue,
         fontName='Helvetica-Bold',
-        spaceBefore=12,
-        spaceAfter=8
+        spaceBefore=15,
+        spaceAfter=10,
+        keepWithNext=True
+    )
+    
+    cell_header = ParagraphStyle(
+        'OpsHeader',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=11,
+        textColor=colors.white,
+        fontName='Helvetica-Bold'
     )
     
     cell_style = ParagraphStyle(
-        'DysonCell',
+        'OpsCell',
         parent=styles['Normal'],
         fontSize=9,
         leading=12,
@@ -465,108 +599,71 @@ def generate_pdf_report(filename):
     )
     
     cell_bold = ParagraphStyle(
-        'DysonCellBold',
-        parent=cell_style,
+        'OpsCellBold',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        textColor=danger_red,
         fontName='Helvetica-Bold'
     )
-
-    cell_header = ParagraphStyle(
-        'DysonHeader',
-        parent=cell_style,
-        fontName='Helvetica-Bold',
-        textColor=colors.white
-    )
-
-    # Document Header
-    story.append(Paragraph("DYSON OPERATIONS DASHBOARD", title_style))
-    current_date = datetime.date.today().strftime("%B %d, %Y")
-    story.append(Paragraph(f"DAILY PROJECT STATUS REPORT &bull; GENERATED ON: {current_date}", subtitle_style))
     
-    # Decorative colored bar (Dyson signature fuchsia line)
-    d = Table([[""]], colWidths=[532], rowHeights=[3])
-    d.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), iron_pink),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-        ('TOPPADDING', (0,0), (-1,-1), 0),
-    ]))
-    story.append(d)
-    story.append(Spacer(1, 15))
+    # Header Title (Generic title, removed 'Dyson')
+    story.append(Paragraph("Daily Test Operations Report", title_style))
+    story.append(Paragraph(f"Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Confidential Operations Data", subtitle_style))
     
-    # Load data
-    tasks = ExcelDataStore.get_tasks()
-    
-    # Calculate statistics
-    total_tasks = len(tasks)
-    avg_progress = int(sum(t["Progress"] for t in tasks) / total_tasks) if total_tasks > 0 else 0
-    completed_tasks = sum(1 for t in tasks if t["Progress"] == 100)
-    in_progress_tasks = sum(1 for t in tasks if 0 < t["Progress"] < 100)
-    
-    # Summary Table
-    summary_data = [
-        [
-            Paragraph("Total Tasks", cell_bold),
-            Paragraph(str(total_tasks), cell_style),
-            Paragraph("Average Progress", cell_bold),
-            Paragraph(f"{avg_progress}%", cell_style)
-        ],
-        [
-            Paragraph("Completed Tasks", cell_bold),
-            Paragraph(str(completed_tasks), cell_style),
-            Paragraph("In Progress Tasks", cell_bold),
-            Paragraph(str(in_progress_tasks), cell_style)
-        ]
-    ]
-    summary_table = Table(summary_data, colWidths=[130, 136, 130, 136])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), light_bg),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, border_color),
-        ('BOX', (0,0), (-1,-1), 1, border_color),
-        ('TOPPADDING', (0,0), (-1,-1), 8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-        ('LEFTPADDING', (0,0), (-1,-1), 10),
-        ('RIGHTPADDING', (0,0), (-1,-1), 10),
-    ]))
-    
-    story.append(Paragraph("System Summary", section_title_style))
-    story.append(summary_table)
+    # Add Gantt Chart Section
+    story.append(Paragraph("Test Method Milestones (Gantt Chart)", section_title_style))
+    from reportlab.platypus import Image
+    story.append(Image(gantt_image_path, width=500, height=250))
     story.append(Spacer(1, 20))
     
-    # Detailed Tasks Table
-    story.append(Paragraph("Active Task Details", section_title_style))
+    # Filter for Rejected Products only
+    rejected_tasks = [t for t in tasks if t.get("Status") == "Rejected"]
     
-    # Table Headers
+    story.append(Paragraph("Rejected Products Inventory", section_title_style))
+    
+    # Table Headers (Owner column renamed to Rejection Comments)
     table_data = [[
         Paragraph("ID", cell_header),
-        Paragraph("Task Name", cell_header),
+        Paragraph("Product Name", cell_header),
+        Paragraph("Phase", cell_header),
         Paragraph("Start Date", cell_header),
         Paragraph("End Date", cell_header),
-        Paragraph("Progress", cell_header),
-        Paragraph("Owner", cell_header)
+        Paragraph("Rejection Comments", cell_header)
     ]]
     
-    for t in tasks:
+    if rejected_tasks:
+        for t in rejected_tasks:
+            table_data.append([
+                Paragraph(t["Task ID"], cell_bold),
+                Paragraph(t["Task Name"], cell_style),
+                Paragraph(t.get("Phase", "Proto"), cell_style),
+                Paragraph(str(t["Start Date"]), cell_style),
+                Paragraph(str(t["End Date"]), cell_style),
+                Paragraph(t["Owner"], cell_bold)  # Owner contains rejection comments
+            ])
+    else:
+        # Empty state row
         table_data.append([
-            Paragraph(t["Task ID"], cell_style),
-            Paragraph(t["Task Name"], cell_style),
-            Paragraph(str(t["Start Date"]), cell_style),
-            Paragraph(str(t["End Date"]), cell_style),
-            Paragraph(f"{t['Progress']}%", cell_bold if t['Progress'] == 100 else cell_style),
-            Paragraph(t["Owner"], cell_style)
+            Paragraph("-", cell_style),
+            Paragraph("No rejected products recorded in the system.", cell_style),
+            Paragraph("-", cell_style),
+            Paragraph("-", cell_style),
+            Paragraph("-", cell_style),
+            Paragraph("-", cell_style)
         ])
         
-    tasks_table = Table(table_data, colWidths=[55, 170, 75, 75, 57, 100])
+    # Table Column Widths (Sum = 500)
+    tasks_table = Table(table_data, colWidths=[50, 120, 45, 60, 60, 165])
     tasks_table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), charcoal),
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('GRID', (0,0), (-1,-1), 0.5, border_color),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('RIGHTPADDING', (0,0), (-1,-1), 6),
-        # Row styling alternates
+        ('TOPPADDING', (0,0), (-1,-1), 8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, light_bg])
     ]))
     story.append(tasks_table)
@@ -574,13 +671,13 @@ def generate_pdf_report(filename):
     # Footer Note
     story.append(Spacer(1, 40))
     footer_style = ParagraphStyle(
-        'DysonFooter',
+        'OpsFooter',
         parent=styles['Normal'],
         fontSize=8,
         textColor=steel_gray,
-        alignment=1 # Centered
+        alignment=1
     )
-    story.append(Paragraph("Confidential &bull; Dyson Technology Operations &bull; Internal Use Only", footer_style))
+    story.append(Paragraph("Confidential &bull; Test Technology Operations &bull; Internal Use Only", footer_style))
     
     doc.build(story)
 

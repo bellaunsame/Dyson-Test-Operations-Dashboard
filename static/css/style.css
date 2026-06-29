@@ -1602,3 +1602,32 @@ button {
     color: var(--color-primary);
     background-color: rgba(0, 83, 156, 0.1);
 }
+
+.phase-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: var(--border-radius-sm);
+    text-transform: uppercase;
+}
+
+.phase-badge.proto {
+    background-color: rgba(0, 83, 156, 0.1);
+    color: #00539C;
+}
+
+.phase-badge.evt {
+    background-color: rgba(238, 118, 35, 0.1);
+    color: #EE7623;
+}
+
+.phase-badge.dvt {
+    background-color: rgba(0, 166, 80, 0.1);
+    color: #00A650;
+}
+
+.phase-badge.pvt {
+    background-color: rgba(214, 37, 125, 0.1);
+    color: #D6257D;
+}

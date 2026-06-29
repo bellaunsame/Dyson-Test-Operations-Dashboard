@@ -33,6 +33,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Edit Form Controls
     const btnCancelEdit = document.getElementById('btn-cancel-edit');
     const btnAddTask = document.getElementById('btn-add-task');
+    const selectPhase = document.getElementById('phase');
+    const selectStatus = document.getElementById('status');
+    const labelOwner = document.getElementById('label-owner');
+    const inputOwner = document.getElementById('owner');
     
     // Log Modal Elements
     const emailLogModal = document.getElementById('email-log-modal');
@@ -108,6 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tr.innerHTML = `
                 <td><strong>${task['Task ID']}</strong></td>
                 <td>${task['Task Name']}</td>
+                <td><span class="phase-badge ${task.Phase.toLowerCase()}">${task.Phase}</span></td>
                 <td>${task['Start Date']}</td>
                 <td>${task['End Date']}</td>
                 <td>${task['Duration']} days</td>
@@ -282,14 +287,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const startDate = document.getElementById('start-date').value;
         const duration = parseInt(document.getElementById('duration').value);
         const progress = parseInt(document.getElementById('progress').value);
-        const owner = document.getElementById('owner').value;
+        const owner = document.getElementById('owner').value.trim();
+        const phase = selectPhase.value;
+        const status = selectStatus.value;
 
         const payload = {
             "Task Name": taskName,
             "Start Date": startDate,
             "Duration": duration,
             "Progress": progress,
-            "Owner": owner
+            "Owner": owner,
+            "Phase": phase,
+            "Status": status
         };
 
         const btn = document.getElementById('btn-add-task');
@@ -350,6 +359,11 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('duration').value = task['Duration'];
         document.getElementById('progress').value = task['Progress'];
         document.getElementById('owner').value = task['Owner'];
+        selectPhase.value = task['Phase'] || 'Proto';
+        selectStatus.value = task['Status'] || 'Not Started';
+        
+        // Dynamic label toggle
+        updateOwnerLabelAndPlaceholder(task['Status'] || 'Not Started');
 
         // Update UI buttons
         btnAddTask.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Update Task';
@@ -364,6 +378,7 @@ document.addEventListener('DOMContentLoaded', () => {
         editingTaskId = null;
         addTaskForm.reset();
         document.getElementById('start-date').value = todayStr;
+        updateOwnerLabelAndPlaceholder('Not Started');
         
         btnAddTask.innerHTML = '<i class="fa-solid fa-plus"></i> Add Task';
         btnAddTask.className = 'btn btn-primary';
@@ -371,6 +386,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     btnCancelEdit.addEventListener('click', cancelEditTask);
+
+    // Dynamic Form Label Adjustment based on Status
+    function updateOwnerLabelAndPlaceholder(statusVal) {
+        if (statusVal === 'Rejected') {
+            labelOwner.textContent = 'Rejection Comments';
+            inputOwner.placeholder = 'e.g., Failed thermal fuse test at 150C. Redesigning sensor placement.';
+        } else {
+            labelOwner.textContent = 'Owner Team';
+            inputOwner.placeholder = 'e.g., Engineering Team';
+        }
+    }
+
+    selectStatus.addEventListener('change', (e) => {
+        updateOwnerLabelAndPlaceholder(e.target.value);
+    });
 
     // Delete Task Operation
     function deleteTask(taskId) {
