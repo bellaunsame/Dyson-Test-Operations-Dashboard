@@ -1,0 +1,468 @@
+{% extends "base.html" %}
+
+{% block title %}{{ project.name }} — Test Ops Dashboard{% endblock %}
+
+{% block head %}
+<style>
+/* ── Modal input fix: force visible styled inputs in dark mode ── */
+#row-form input[type="text"],
+#row-form input[type="date"],
+#row-form input[type="number"] {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text-main, #f5f5f7);
+    font-family: var(--font-sans, 'Inter', sans-serif);
+    font-size: 13px;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    -webkit-appearance: none;
+}
+#row-form input:focus {
+    border-color: var(--color-primary, #00539C);
+    box-shadow: 0 0 0 3px rgba(0,83,156,0.15);
+    background: rgba(0,83,156,0.06);
+}
+#row-form input::placeholder { color: #666; }
+
+/* Phase sub-table number inputs */
+.phase-input {
+    width: 64px !important;
+    text-align: center !important;
+    padding: 6px 4px !important;
+}
+
+/* Defect qty badge */
+.defect-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(231,76,60,0.12);
+    color: #e74c3c;
+    border: 1px solid rgba(231,76,60,0.25);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-weight: 700;
+    font-size: 12px;
+}
+.defect-badge.zero {
+    background: transparent;
+    color: var(--color-text-muted);
+    border-color: transparent;
+    font-weight: 400;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="padding: 20px; max-width: 1400px; margin: 0 auto;">
+    <!-- Header -->
+    <header class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 25px; flex-wrap: wrap; gap: 15px;">
+        <div>
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                <a href="/tables" class="back-link" style="font-size: 14px; font-weight: 600; color: var(--color-text-muted); text-decoration: none; display: flex; align-items: center; gap: 6px; transition: color 0.2s;">
+                    <i class="fa-solid fa-arrow-left"></i> Tables
+                </a>
+                <span style="font-size: 20px; font-weight: 700; color: var(--color-text);">{{ project.name }}</span>
+            </div>
+            <p style="margin: 0; font-size: 13px; color: var(--color-text-muted);">{{ project.description or 'No description provided.' }}</p>
+        </div>
+        <button class="btn btn-primary" id="btn-add-row" style="padding: 8px 16px; font-weight: 600;">
+            <i class="fa-solid fa-plus"></i> Add Row
+        </button>
+    </header>
+
+    <!-- Table Container -->
+    <div class="grid-card" style="padding: 0; overflow: hidden; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-card-bg);">
+        <div class="table-responsive" style="overflow-x: auto;">
+            <table class="dyson-table" id="project-detail-table" style="width: 100%; border-collapse: collapse; min-width: 1200px; font-size: 13px; text-align: left;">
+                <thead>
+                    <!-- First Header Row -->
+                    <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--color-border);">
+                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border); width: 40px;">#</th>
+                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Category</th>
+                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Test Method</th>
+                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Test Number</th>
+                        <!-- Phase Headers -->
+                        <th colspan="3" style="padding: 8px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(142,68,173,0.12);">Proto</th>
+                        <th colspan="3" style="padding: 8px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(41,128,185,0.12);">DVT</th>
+                        <th colspan="3" style="padding: 8px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(39,174,96,0.12);">EVT</th>
+                        <th colspan="3" style="padding: 8px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(211,84,0,0.12);">PVT</th>
+                        <th rowspan="2" style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(231,76,60,0.08); min-width: 70px;">Defect<br>Qty</th>
+                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Rejection Comment/s</th>
+                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; width: 90px; text-align: center;">Action</th>
+                    </tr>
+                    <!-- Sub-headers -->
+                    <tr style="background: rgba(255,255,255,0.01); border-bottom: 2px solid var(--color-border);">
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Wk</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Day</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">Qty</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Wk</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Day</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">Qty</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Wk</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Day</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">Qty</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Wk</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Day</th>
+                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">Qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="20" class="text-center" style="padding: 30px; color: var(--color-text-muted);">
+                            <i class="fa-solid fa-spinner fa-spin"></i> Loading test records...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ── Add/Edit Row Modal ── -->
+<div class="modal-backdrop" id="row-modal">
+    <div class="modal-card" style="width: 100%; max-width: 640px;">
+        <div class="modal-header">
+            <h3 id="modal-title" style="margin: 0; font-size: 18px; font-weight: 700;">Add Test Record</h3>
+            <button class="modal-close-btn" id="btn-close-row-modal-x" type="button"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body" style="padding: 20px;">
+            <form id="row-form">
+                <!-- Core fields -->
+                <div style="display: grid; grid-template-columns: 2fr 2fr 1fr; gap: 14px; margin-bottom: 14px;">
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:600;color:var(--color-text-muted);margin-bottom:5px;">Category</label>
+                        <input type="text" id="row-category" placeholder="e.g., Device: Hair Dryer" required style="width:100%;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:600;color:var(--color-text-muted);margin-bottom:5px;">Test Method</label>
+                        <input type="text" id="row-test-method" placeholder="e.g., Stress Imaging" required style="width:100%;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:600;color:var(--color-text-muted);margin-bottom:5px;">Test Number</label>
+                        <input type="text" id="row-test-number" placeholder="TM-035128" required style="width:100%;">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:600;color:var(--color-text-muted);margin-bottom:5px;">Start Date</label>
+                        <input type="date" id="row-start-date" required style="width:100%;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:600;color:var(--color-text-muted);margin-bottom:5px;">
+                            <i class="fa-solid fa-triangle-exclamation" style="color:#e74c3c;"></i> Defect Qty
+                        </label>
+                        <input type="number" id="row-defect-qty" min="0" value="0" placeholder="0" style="width:100%;">
+                    </div>
+                </div>
+
+                <!-- Milestones phase table -->
+                <div style="border:1px solid var(--color-border);border-radius:8px;padding:14px;margin-bottom:14px;background:rgba(255,255,255,0.01);">
+                    <h4 style="margin:0 0 12px;font-size:11px;font-weight:700;color:var(--color-primary);text-transform:uppercase;letter-spacing:1px;">
+                        <i class="fa-solid fa-timeline"></i> Milestones Configuration
+                    </h4>
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--color-border);">
+                                <th style="padding:6px 8px;text-align:left;color:var(--color-text-muted);font-weight:600;">Phase</th>
+                                <th style="padding:6px 8px;text-align:center;color:var(--color-text-muted);font-weight:600;">Weeks</th>
+                                <th style="padding:6px 8px;text-align:center;color:var(--color-text-muted);font-weight:600;">Days</th>
+                                <th style="padding:6px 8px;text-align:center;color:var(--color-text-muted);font-weight:600;">Qty</th>
+                                <th style="padding:6px 8px;text-align:center;color:var(--color-text-muted);font-weight:600;">Total Days</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                <td style="padding:8px;font-weight:700;color:#8E44AD;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#8E44AD;margin-right:5px;"></span>Proto</td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="proto-w" min="0" value="0" class="phase-input" oninput="updateTotal('proto')"></td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="proto-d" min="0" max="6" value="0" class="phase-input" oninput="updateTotal('proto')"></td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="proto-q" min="0" value="0" class="phase-input"></td>
+                                <td style="padding:6px 8px;text-align:center;font-size:11px;color:var(--color-text-muted);" id="proto-total">0 days</td>
+                            </tr>
+                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                <td style="padding:8px;font-weight:700;color:#2980B9;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#2980B9;margin-right:5px;"></span>DVT</td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="dvt-w" min="0" value="0" class="phase-input" oninput="updateTotal('dvt')"></td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="dvt-d" min="0" max="6" value="0" class="phase-input" oninput="updateTotal('dvt')"></td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="dvt-q" min="0" value="0" class="phase-input"></td>
+                                <td style="padding:6px 8px;text-align:center;font-size:11px;color:var(--color-text-muted);" id="dvt-total">0 days</td>
+                            </tr>
+                            <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                                <td style="padding:8px;font-weight:700;color:#27AE60;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#27AE60;margin-right:5px;"></span>EVT</td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="evt-w" min="0" value="0" class="phase-input" oninput="updateTotal('evt')"></td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="evt-d" min="0" max="6" value="0" class="phase-input" oninput="updateTotal('evt')"></td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="evt-q" min="0" value="0" class="phase-input"></td>
+                                <td style="padding:6px 8px;text-align:center;font-size:11px;color:var(--color-text-muted);" id="evt-total">0 days</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:8px;font-weight:700;color:#D35400;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#D35400;margin-right:5px;"></span>PVT</td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="pvt-w" min="0" value="0" class="phase-input" oninput="updateTotal('pvt')"></td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="pvt-d" min="0" max="6" value="0" class="phase-input" oninput="updateTotal('pvt')"></td>
+                                <td style="padding:6px 8px;text-align:center;"><input type="number" id="pvt-q" min="0" value="0" class="phase-input"></td>
+                                <td style="padding:6px 8px;text-align:center;font-size:11px;color:var(--color-text-muted);" id="pvt-total">0 days</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Rejection comment -->
+                <div style="margin-bottom:18px;">
+                    <label style="display:block;font-size:11px;font-weight:600;color:var(--color-text-muted);margin-bottom:5px;">Rejection Comment/s</label>
+                    <input type="text" id="row-comments" placeholder="e.g., unit failure at 72hr soak" style="width:100%;">
+                </div>
+
+                <!-- Actions -->
+                <div style="display:flex;justify-content:flex-end;gap:10px;">
+                    <button type="button" class="btn btn-secondary" id="btn-close-row-modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btn-save-row">
+                        <i class="fa-solid fa-floppy-disk"></i> Save Record
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Live "Total Days" calculator for the phase rows
+function updateTotal(phase) {
+    const w = parseInt(document.getElementById(`${phase}-w`).value || 0);
+    const d = parseInt(document.getElementById(`${phase}-d`).value || 0);
+    const total = w * 7 + d;
+    const el = document.getElementById(`${phase}-total`);
+    if (el) el.textContent = total > 0 ? `${total} day${total !== 1 ? 's' : ''}` : '—';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const projectName = "{{ project.name }}";
+    let rowsData = [];
+    let editingRowId = null;
+
+    const tableBody = document.querySelector('#project-detail-table tbody');
+    const rowModal  = document.getElementById('row-modal');
+    const btnAddRow = document.getElementById('btn-add-row');
+    const rowForm   = document.getElementById('row-form');
+    const modalTitle = document.getElementById('modal-title');
+
+    // Default start date = today
+    const todayStr = new Date().toISOString().split('T')[0];
+    document.getElementById('row-start-date').value = todayStr;
+
+    loadRows();
+
+    // ── Open Add modal ──────────────────────────────────────────────────
+    btnAddRow.addEventListener('click', () => {
+        editingRowId = null;
+        modalTitle.textContent = 'Add Test Record';
+        rowForm.reset();
+        document.getElementById('row-start-date').value = todayStr;
+        // Reset totals
+        ['proto','dvt','evt','pvt'].forEach(p => {
+            document.getElementById(`${p}-w`).value = 0;
+            document.getElementById(`${p}-d`).value = 0;
+            document.getElementById(`${p}-q`).value = 0;
+            updateTotal(p);
+        });
+        document.getElementById('row-defect-qty').value = 0;
+        rowModal.classList.add('active');
+    });
+
+    function closeRowModal() {
+        rowModal.classList.remove('active');
+    }
+
+    document.getElementById('btn-close-row-modal').addEventListener('click', closeRowModal);
+    document.getElementById('btn-close-row-modal-x').addEventListener('click', closeRowModal);
+
+    // ── Form submit ────────────────────────────────────────────────────
+    rowForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+
+        const payload = {
+            "Category":    document.getElementById('row-category').value.trim(),
+            "Test Method": document.getElementById('row-test-method').value.trim(),
+            "Test Number": document.getElementById('row-test-number').value.trim(),
+            "Start Date":  document.getElementById('row-start-date').value,
+
+            "Proto Weeks": parseInt(document.getElementById('proto-w').value || 0),
+            "Proto Days":  parseInt(document.getElementById('proto-d').value || 0),
+            "Proto Qty":   parseInt(document.getElementById('proto-q').value || 0),
+
+            "DVT Weeks":   parseInt(document.getElementById('dvt-w').value || 0),
+            "DVT Days":    parseInt(document.getElementById('dvt-d').value || 0),
+            "DVT Qty":     parseInt(document.getElementById('dvt-q').value || 0),
+
+            "EVT Weeks":   parseInt(document.getElementById('evt-w').value || 0),
+            "EVT Days":    parseInt(document.getElementById('evt-d').value || 0),
+            "EVT Qty":     parseInt(document.getElementById('evt-q').value || 0),
+
+            "PVT Weeks":   parseInt(document.getElementById('pvt-w').value || 0),
+            "PVT Days":    parseInt(document.getElementById('pvt-d').value || 0),
+            "PVT Qty":     parseInt(document.getElementById('pvt-q').value || 0),
+
+            "Comments":    document.getElementById('row-comments').value.trim(),
+            "Defect Qty":  parseInt(document.getElementById('row-defect-qty').value || 0)
+        };
+
+        const url    = editingRowId ? `/api/projects/${projectName}/rows/${editingRowId}` : `/api/projects/${projectName}/rows`;
+        const method = editingRowId ? 'PUT' : 'POST';
+        const btnSave = document.getElementById('btn-save-row');
+        btnSave.disabled = true;
+        btnSave.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+        fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => {
+            if (!res.ok) return res.json().then(d => { throw new Error(d.error); });
+            return res.json();
+        })
+        .then(() => {
+            showToast(editingRowId ? 'Record updated successfully!' : 'Record added successfully!', 'success');
+            closeRowModal();
+            loadRows();
+        })
+        .catch(err => showToast(err.message || 'Save failed', 'error'))
+        .finally(() => {
+            btnSave.disabled = false;
+            btnSave.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save Record';
+        });
+    });
+
+    // ── Load Rows ──────────────────────────────────────────────────────
+    function loadRows() {
+        fetch(`/api/projects/${projectName}/rows`)
+            .then(res => res.json())
+            .then(rows => { rowsData = rows; renderRows(rows); })
+            .catch(() => showToast('Error loading test records', 'error'));
+    }
+
+    // ── Render Table ───────────────────────────────────────────────────
+    function renderRows(rows) {
+        tableBody.innerHTML = '';
+
+        if (rows.length === 0) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="20" class="text-center" style="padding:30px;color:var(--color-text-muted);">
+                        No test records yet. Click <strong>Add Row</strong> to get started.
+                    </td>
+                </tr>`;
+            return;
+        }
+
+        rows.forEach((r, idx) => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--color-border)';
+            tr.addEventListener('mouseenter', () => tr.style.background = 'rgba(255,255,255,0.015)');
+            tr.addEventListener('mouseleave', () => tr.style.background = 'transparent');
+
+            const fmtQty = (qty) => parseInt(qty) > 0
+                ? `<span style="font-weight:700;color:#2ecc71;">${qty}</span>`
+                : `<span style="color:var(--color-text-muted);">${qty}</span>`;
+
+            const defectQty  = parseInt(r["Defect Qty"] || 0);
+            const defectCell = defectQty > 0
+                ? `<span class="defect-badge"><i class="fa-solid fa-bug" style="font-size:10px;"></i> ${defectQty}</span>`
+                : `<span class="defect-badge zero">0</span>`;
+
+            tr.innerHTML = `
+                <td style="padding:10px 12px;border-right:1px solid var(--color-border);text-align:center;color:var(--color-text-muted);">${idx + 1}</td>
+                <td style="padding:10px 14px;border-right:1px solid var(--color-border);font-weight:600;">${r["Category"]}</td>
+                <td style="padding:10px 14px;border-right:1px solid var(--color-border);">${r["Test Method"]}</td>
+                <td style="padding:10px 14px;border-right:1px solid var(--color-border);font-family:monospace;font-size:12px;">${r["Test Number"]}</td>
+
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${r["Proto Weeks"]}</td>
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${r["Proto Days"]}</td>
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${fmtQty(r["Proto Qty"])}</td>
+
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${r["DVT Weeks"]}</td>
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${r["DVT Days"]}</td>
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${fmtQty(r["DVT Qty"])}</td>
+
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${r["EVT Weeks"]}</td>
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${r["EVT Days"]}</td>
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${fmtQty(r["EVT Qty"])}</td>
+
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${r["PVT Weeks"]}</td>
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${r["PVT Days"]}</td>
+                <td style="padding:10px 8px;text-align:center;border-right:1px solid var(--color-border);">${fmtQty(r["PVT Qty"])}</td>
+
+                <td style="padding:10px 10px;text-align:center;border-right:1px solid var(--color-border);">${defectCell}</td>
+                <td style="padding:10px 14px;border-right:1px solid var(--color-border);color:#e74c3c;font-weight:600;max-width:180px;word-break:break-word;">${r["Comments"] || '<span style="color:var(--color-text-muted);font-weight:400;">—</span>'}</td>
+                <td style="padding:10px 12px;text-align:center;">
+                    <div style="display:flex;justify-content:center;gap:5px;">
+                        <button class="edit-btn" data-id="${r["id"]}" title="Edit" style="padding:4px 9px;font-size:11px;">
+                            <i class="fa-solid fa-pencil"></i>
+                        </button>
+                        <button class="delete-btn" data-id="${r["id"]}" title="Delete" style="padding:4px 9px;font-size:11px;color:#e74c3c;border-color:rgba(231,76,60,0.2);background:rgba(231,76,60,0.04);">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            tr.querySelector('.edit-btn').addEventListener('click', (e) => {
+                startEditRow(parseInt(e.currentTarget.getAttribute('data-id')));
+            });
+            tr.querySelector('.delete-btn').addEventListener('click', (e) => {
+                const id = parseInt(e.currentTarget.getAttribute('data-id'));
+                if (confirm('Delete this test record?')) deleteRow(id);
+            });
+
+            tableBody.appendChild(tr);
+        });
+    }
+
+    // ── Edit Row ───────────────────────────────────────────────────────
+    function startEditRow(id) {
+        const r = rowsData.find(row => row.id === id);
+        if (!r) return;
+
+        editingRowId = id;
+        modalTitle.textContent = 'Edit Test Record';
+
+        document.getElementById('row-category').value    = r["Category"]    || '';
+        document.getElementById('row-test-method').value = r["Test Method"] || '';
+        document.getElementById('row-test-number').value = r["Test Number"] || '';
+        document.getElementById('row-start-date').value  = r["Start Date"]  || todayStr;
+
+        document.getElementById('proto-w').value = r["Proto Weeks"] ?? 0;
+        document.getElementById('proto-d').value = r["Proto Days"]  ?? 0;
+        document.getElementById('proto-q').value = r["Proto Qty"]   ?? 0;
+
+        document.getElementById('dvt-w').value = r["DVT Weeks"] ?? 0;
+        document.getElementById('dvt-d').value = r["DVT Days"]  ?? 0;
+        document.getElementById('dvt-q').value = r["DVT Qty"]   ?? 0;
+
+        document.getElementById('evt-w').value = r["EVT Weeks"] ?? 0;
+        document.getElementById('evt-d').value = r["EVT Days"]  ?? 0;
+        document.getElementById('evt-q').value = r["EVT Qty"]   ?? 0;
+
+        document.getElementById('pvt-w').value = r["PVT Weeks"] ?? 0;
+        document.getElementById('pvt-d').value = r["PVT Days"]  ?? 0;
+        document.getElementById('pvt-q').value = r["PVT Qty"]   ?? 0;
+
+        document.getElementById('row-comments').value    = r["Comments"]   || '';
+        document.getElementById('row-defect-qty').value  = r["Defect Qty"] ?? 0;
+
+        // Refresh total day counters
+        ['proto','dvt','evt','pvt'].forEach(p => updateTotal(p));
+
+        rowModal.classList.add('active');
+    }
+
+    // ── Delete Row ─────────────────────────────────────────────────────
+    function deleteRow(id) {
+        fetch(`/api/projects/${projectName}/rows/${id}`, { method: 'DELETE' })
+            .then(res => res.json())
+            .then(data => { showToast(data.message, 'success'); loadRows(); })
+            .catch(() => showToast('Failed to delete row', 'error'));
+    }
+});
+</script>
+{% endblock %}

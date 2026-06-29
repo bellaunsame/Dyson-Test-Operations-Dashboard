@@ -1,43 +1,31 @@
 import os
-import uuid
 import datetime
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_file
-import pandas as pd
-from dotenv import load_dotenv
-from flask_mail import Mail, Message
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import sys
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
+import pandas as pd
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg')  # Headless mode for web servers
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-# Load environment variables
-load_dotenv()
+# ReportLab imports for PDF generation
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "dyson-ops-secret-key-2026")
+app.secret_key = "super_secret_key_for_dyson_operations"
 
-# Configure Flask-Mail
-app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', '')
-app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
-app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True').lower() in ('true', '1', 't')
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '')
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '')
-app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', 'ops-alerts@dyson-dashboard.local')
-
-mail = Mail(app)
-
-# Ensure the uploads directory exists
+# Configure App Data and Upload Folders
 UPLOAD_FOLDER = os.path.join(app.root_path, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 EXCEL_PATH = os.path.join(UPLOAD_FOLDER, 'tasks.xlsx')
 
 # Configure Flask-SQLAlchemy
-import sys
 is_testing = 'unittest' in sys.modules or app.config.get('TESTING', False)
 if is_testing:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
@@ -48,277 +36,365 @@ else:
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# User credentials (simple mock login)
+# User authentication credentials
 USER_CREDENTIALS = {
     "username": "admin",
     "password": "dyson2026"
 }
 
-# --- DATABASE MODEL ---
-class Task(db.Model):
+# --- DATABASE MODELS ---
+
+class Project(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    task_id = db.Column(db.String(10), unique=True, nullable=False)
-    task_name = db.Column(db.String(100), nullable=False)
+    name = db.Column(db.String(50), unique=True, nullable=False)
+    description = db.Column(db.String(200), nullable=True)
+    status = db.Column(db.String(20), default="Active")  # Active, Archived
+    created_at = db.Column(db.String(20), nullable=False)
+
+    def to_dict(self, row_count=None):
+        if row_count is None:
+            row_count = TestRecord.query.filter_by(project_name=self.name).count()
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description or "",
+            "status": self.status,
+            "created_at": self.created_at,
+            "row_count": row_count
+        }
+
+class TestRecord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_name = db.Column(db.String(50), nullable=False)
+    category = db.Column(db.String(100), nullable=False)
+    test_method = db.Column(db.String(100), nullable=False)
+    test_number = db.Column(db.String(50), nullable=False)
     start_date = db.Column(db.String(10), nullable=False)
-    duration = db.Column(db.Integer, nullable=False)
-    end_date = db.Column(db.String(10), nullable=False)
-    progress = db.Column(db.Integer, nullable=False)
-    owner = db.Column(db.String(200), nullable=False)  # Extended length for comments
-    status = db.Column(db.String(20), nullable=False)
-    phase = db.Column(db.String(20), nullable=False, default="Proto")
+
+    # Proto Phase
+    proto_weeks = db.Column(db.Integer, default=0)
+    proto_days = db.Column(db.Integer, default=0)
+    proto_qty = db.Column(db.Integer, default=0)
+
+    # DVT Phase
+    dvt_weeks = db.Column(db.Integer, default=0)
+    dvt_days = db.Column(db.Integer, default=0)
+    dvt_qty = db.Column(db.Integer, default=0)
+
+    # EVT Phase
+    evt_weeks = db.Column(db.Integer, default=0)
+    evt_days = db.Column(db.Integer, default=0)
+    evt_qty = db.Column(db.Integer, default=0)
+
+    # PVT Phase
+    pvt_weeks = db.Column(db.Integer, default=0)
+    pvt_days = db.Column(db.Integer, default=0)
+    pvt_qty = db.Column(db.Integer, default=0)
+
+    comments = db.Column(db.String(500), nullable=True)
+    defect_qty = db.Column(db.Integer, default=0)
 
     def to_dict(self):
         return {
-            "Task ID": self.task_id,
-            "Task Name": self.task_name,
+            "id": self.id,
+            "Project Name": self.project_name,
+            "Category": self.category,
+            "Test Method": self.test_method,
+            "Test Number": self.test_number,
             "Start Date": self.start_date,
-            "Duration": self.duration,
-            "End Date": self.end_date,
-            "Progress": self.progress,
-            "Owner": self.owner,
-            "Status": self.status,
-            "Phase": self.phase
+            "Proto Weeks": self.proto_weeks,
+            "Proto Days": self.proto_days,
+            "Proto Qty": self.proto_qty,
+            "DVT Weeks": self.dvt_weeks,
+            "DVT Days": self.dvt_days,
+            "DVT Qty": self.dvt_qty,
+            "EVT Weeks": self.evt_weeks,
+            "EVT Days": self.evt_days,
+            "EVT Qty": self.evt_qty,
+            "PVT Weeks": self.pvt_weeks,
+            "PVT Days": self.pvt_days,
+            "PVT Qty": self.pvt_qty,
+            "Comments": self.comments or "",
+            "Defect Qty": self.defect_qty or 0
         }
+
+class ExcelMapping(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    project_name = db.Column(db.String(50), unique=True, nullable=False)
+    file_path = db.Column(db.String(255), nullable=False)
+    sheet_name = db.Column(db.String(100), nullable=False)
+    mapping_json = db.Column(db.Text, nullable=False)
+
+    def to_dict(self):
+        import json
+        return {
+            "id": self.id,
+            "project_name": self.project_name,
+            "file_path": self.file_path,
+            "sheet_name": self.sheet_name,
+            "mapping": json.loads(self.mapping_json) if self.mapping_json else {}
+        }
+
+# --- SHAREPOINT SERVICE (Microsoft Graph API) ---
+try:
+    from office365.graph_client import GraphClient
+    HAS_GRAPH_LIB = True
+except ImportError:
+    HAS_GRAPH_LIB = False
+
+class TokenObject:
+    def __init__(self, access_token):
+        self.tokenType = "Bearer"
+        self.accessToken = access_token
+
+class SharePointService:
+    @staticmethod
+    def get_graph_client():
+        tenant_id = os.getenv('TENANT_ID')
+        client_id = os.getenv('SHAREPOINT_CLIENT_ID')
+        client_secret = os.getenv('SHAREPOINT_CLIENT_SECRET')
+        
+        if not (tenant_id and client_id and client_secret) or not HAS_GRAPH_LIB:
+            return None
+            
+        try:
+            client = GraphClient(tenant=tenant_id).with_client_secret(client_id, client_secret)
+            return client
+        except Exception as e:
+            print(f"Graph API Connection Error: {e}")
+            return None
+
+    @staticmethod
+    def list_files():
+        client = SharePointService.get_graph_client()
+        site_url = os.getenv('SHAREPOINT_SITE_URL')
+        doc_lib = os.getenv('SHAREPOINT_DOC_LIB', 'Test Data')
+        
+        # Fallback Mock Files if SharePoint/Graph is not configured or fails
+        mock_files = [
+            {"name": "Phase_Test_Method_Master_Data.xlsx", "path": "Phase_Test_Method_Master_Data.xlsx", "size": "11.3 KB", "modified": "2026-06-29"},
+            {"name": "Dyson_Milestones_893.xlsx", "path": "Dyson_Milestones_893.xlsx", "size": "45 KB", "modified": "2026-06-29"},
+            {"name": "Vacuum_990_Schedule.xlsx", "path": "Vacuum_990_Schedule.xlsx", "size": "58 KB", "modified": "2026-06-29"}
+        ]
+        
+        if not client or not site_url:
+            return mock_files
+            
+        try:
+            site = client.sites.get_by_url(site_url)
+            drives = site.drives
+            client.load(drives)
+            client.execute_query()
+            
+            target_drive = None
+            for d in drives:
+                if d.name.lower() == doc_lib.lower():
+                    target_drive = d
+                    break
+                    
+            if not target_drive:
+                return mock_files
+                
+            items = target_drive.root.children
+            client.load(items)
+            client.execute_query()
+            
+            result = []
+            for item in items:
+                if item.file is not None:
+                    # Parse modified date
+                    modified_str = 'N/A'
+                    if hasattr(item, 'last_modified_datetime') and item.last_modified_datetime:
+                        modified_str = item.last_modified_datetime.strftime('%Y-%m-%d')
+                    elif hasattr(item, 'lastModifiedDateTime') and item.lastModifiedDateTime:
+                        modified_str = item.lastModifiedDateTime.strftime('%Y-%m-%d')
+                        
+                    result.append({
+                        "name": item.name,
+                        "path": item.name,
+                        "size": f"{round(item.size / 1024, 1)} KB" if hasattr(item, 'size') and item.size else "Unknown",
+                        "modified": modified_str
+                    })
+            return result if result else mock_files
+        except Exception as e:
+            print(f"Error listing Graph files: {e}")
+            return mock_files
+
+    @staticmethod
+    def download_file(filename):
+        client = SharePointService.get_graph_client()
+        site_url = os.getenv('SHAREPOINT_SITE_URL')
+        doc_lib = os.getenv('SHAREPOINT_DOC_LIB', 'Test Data')
+        
+        if not client or not site_url:
+            # Fallback: check if we have a local copy in the uploads folder
+            local_mock_path = os.path.join(UPLOAD_FOLDER, filename)
+            if os.path.exists(local_mock_path):
+                with open(local_mock_path, 'rb') as f:
+                    return f.read()
+            # Otherwise generate a mock Excel file in memory with pandas
+            import io
+            output = io.BytesIO()
+            df = pd.DataFrame([
+                {
+                    "Test Category": "Device: Hair Dryer",
+                    "Method Name": "Stress Imaging",
+                    "Ref Number": "TM-035128",
+                    "Start": "2026-06-28",
+                    "Proto_Wk": 3, "Proto_Day": 2, "Proto_Quantity": 15,
+                    "DVT_Wk": 11, "DVT_Day": 2, "DVT_Quantity": 12,
+                    "EVT_Wk": 3, "EVT_Day": 0, "EVT_Quantity": 10,
+                    "PVT_Wk": 2, "PVT_Day": 0, "PVT_Quantity": 8,
+                    "Defective_Units": 3,
+                    "Rejections_Notes": "unit failure at 72hr soak"
+                }
+            ])
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Sheet1')
+            return output.getvalue()
+            
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(site_url)
+            hostname = parsed.netloc
+            
+            # Build the absolute URL to the file
+            absolute_file_url = f"https://{hostname}/sites/TestOperationsDashboard/{doc_lib}/{filename}"
+            
+            file_item = client.shares.by_url(absolute_file_url).drive_item
+            import io
+            file_buffer = io.BytesIO()
+            file_item.download(file_buffer)
+            client.execute_query()
+            return file_buffer.getvalue()
+        except Exception as e:
+            print(f"Error downloading Graph file: {e}")
+            import io
+            output = io.BytesIO()
+            df = pd.DataFrame([
+                {
+                    "Test Category": "Device: Hair Dryer",
+                    "Method Name": "Stress Imaging",
+                    "Ref Number": "TM-035128",
+                    "Start": "2026-06-28",
+                    "Proto_Wk": 3, "Proto_Day": 2, "Proto_Quantity": 15,
+                    "DVT_Wk": 11, "DVT_Day": 2, "DVT_Quantity": 12,
+                    "EVT_Wk": 3, "EVT_Day": 0, "EVT_Quantity": 10,
+                    "PVT_Wk": 2, "PVT_Day": 0, "PVT_Quantity": 8,
+                    "Defective_Units": 3,
+                    "Rejections_Notes": "unit failure at 72hr soak"
+                }
+            ])
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Sheet1')
+            return output.getvalue()
 
 # --- EXCEL DATA STORE (SQLite Wrapper) ---
 class ExcelDataStore:
     @staticmethod
     def initialize_db():
-        """Initializes the SQLite database and migrates data from Excel if the DB is empty."""
+        """Initializes the SQLite database and migrates schema."""
         db.create_all()
-        
-        # Check if DB is empty
-        if Task.query.count() == 0:
-            print("SQLite database is empty. Checking for Excel file to migrate...")
-            if os.path.exists(EXCEL_PATH):
-                try:
-                    df = pd.read_excel(EXCEL_PATH)
-                    df = df.fillna("")
-                    for _, row in df.iterrows():
-                        progress = int(row.get("Progress", 0))
-                        status = row.get("Status", "Not Started")
-                        if progress == 100:
-                            status = "Completed"
-                        elif progress > 0 and status != "Rejected":
-                            status = "In Progress"
-                        
-                        start_date = str(row["Start Date"])
-                        if " " in start_date:
-                            start_date = start_date.split(" ")[0]
-                        end_date = str(row["End Date"])
-                        if " " in end_date:
-                            end_date = end_date.split(" ")[0]
 
-                        task = Task(
-                            task_id=row["Task ID"],
-                            task_name=row["Task Name"],
-                            start_date=start_date,
-                            duration=int(row["Duration"]),
-                            end_date=end_date,
-                            progress=progress,
-                            owner=row["Owner"],
-                            status=status,
-                            phase=row.get("Phase", "Proto")
-                        )
-                        db.session.add(task)
-                    db.session.commit()
-                    print("Migration from Excel to SQLite completed successfully!")
-                except Exception as e:
-                    print(f"Error migrating from Excel: {e}")
-                    db.session.rollback()
-            else:
-                print("No Excel file found. Seeding database with initial sample data...")
-                sample_tasks = [
-                    {
-                        "task_id": "TSK-001",
-                        "task_name": "V15 Cyclone Engine Optimization",
-                        "start_date": "2026-07-01",
-                        "duration": 15,
-                        "end_date": "2026-07-16",
-                        "progress": 80,
-                        "owner": "Engineering Team",
-                        "status": "In Progress",
-                        "phase": "Proto"
-                    },
-                    {
-                        "task_id": "TSK-002",
-                        "task_name": "Supersonic Hair Dryer Noise Reduction",
-                        "start_date": "2026-07-10",
-                        "duration": 20,
-                        "end_date": "2026-07-30",
-                        "progress": 45,
-                        "owner": "Acoustics Team",
-                        "status": "In Progress",
-                        "phase": "EVT"
-                    },
-                    {
-                        "task_id": "TSK-003",
-                        "task_name": "360 Vis Nav Robot Vacuum Pathing",
-                        "start_date": "2026-07-18",
-                        "duration": 12,
-                        "end_date": "2026-07-30",
-                        "progress": 10,
-                        "owner": "Software Team",
-                        "status": "In Progress",
-                        "phase": "DVT"
-                    },
-                    {
-                        "task_id": "TSK-004",
-                        "task_name": "Airstrait Straightener Thermal Control",
-                        "start_date": "2026-07-25",
-                        "duration": 8,
-                        "end_date": "2026-08-02",
-                        "progress": 0,
-                        "owner": "Thermal Team",
-                        "status": "Not Started",
-                        "phase": "PVT"
-                    },
-                    {
-                        "task_id": "TSK-005",
-                        "task_name": "V15 Cyclone Airflow Restriction",
-                        "start_date": "2026-07-05",
-                        "duration": 10,
-                        "end_date": "2026-07-15",
-                        "progress": 30,
-                        "owner": "Inlet valve failed to open at 40kPa, causing motor stall.",
-                        "status": "Rejected",
-                        "phase": "EVT"
-                    },
-                    {
-                        "task_id": "TSK-006",
-                        "task_name": "Supersonic Heater Thermal Runaway",
-                        "start_date": "2026-07-12",
-                        "duration": 8,
-                        "end_date": "2026-07-20",
-                        "progress": 10,
-                        "owner": "Thermal fuse did not blow at 150C. Redesigning sensor placement.",
-                        "status": "Rejected",
-                        "phase": "DVT"
-                    }
-                ]
-                for st in sample_tasks:
-                    task = Task(**st)
-                    db.session.add(task)
-                db.session.commit()
+        # ── Schema migration: add defect_qty column if it doesn't exist ──
+        try:
+            db.session.execute(db.text('ALTER TABLE test_record ADD COLUMN defect_qty INTEGER DEFAULT 0'))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # Column already exists — safe to ignore
 
     @staticmethod
     def initialize_excel():
-        # Keep for backward compatibility
         ExcelDataStore.initialize_db()
 
     @staticmethod
     def get_tasks():
-        """Reads tasks from the SQLite database and returns them as a list of dicts."""
+        """Compat wrapper for legacy test calls."""
         ExcelDataStore.initialize_db()
-        try:
-            tasks = Task.query.all()
-            return [t.to_dict() for t in tasks]
-        except Exception as e:
-            print(f"Error reading database: {e}")
-            return []
+        return [r.to_dict() for r in TestRecord.query.all()]
 
     @staticmethod
-    def save_task(task_data):
-        """Adds or updates a task in the SQLite database."""
+    def save_task(data):
+        """Compat wrapper for legacy test calls."""
         ExcelDataStore.initialize_db()
-        try:
-            start_dt = datetime.datetime.strptime(task_data["Start Date"], "%Y-%m-%d")
-            end_dt = start_dt + datetime.timedelta(days=int(task_data["Duration"]))
-            task_data["End Date"] = end_dt.strftime("%Y-%m-%d")
-            
-            # Save the phase and status directly from input
-            progress = int(task_data["Progress"])
-            phase = task_data.get("Phase", "Proto")
-            status = task_data.get("Status", "Not Started")
-            
-            # If progress is 100, ensure it's marked completed (unless rejected)
-            if progress == 100 and status != "Rejected":
-                status = "Completed"
-            elif progress > 0 and status == "Not Started":
-                status = "In Progress"
+        # Convert legacy/flat keys to TestRecord structure
+        record_data = {
+            "project_name": data.get("Project Name", "893"),
+            "category": data.get("Category", data.get("Product Name", "Device")),
+            "test_method": data.get("Test Method", "Testing"),
+            "test_number": data.get("Test Number", "TM-001"),
+            "start_date": data.get("Start Date", "2026-07-01"),
+            "proto_weeks": int(data.get("Proto Weeks", 0)),
+            "proto_days": int(data.get("Proto Days", 0)),
+            "proto_qty": int(data.get("Proto Qty", data.get("Qty", 0))),
+            "dvt_weeks": int(data.get("DVT Weeks", 0)),
+            "dvt_days": int(data.get("DVT Days", 0)),
+            "dvt_qty": int(data.get("DVT Qty", 0)),
+            "evt_weeks": int(data.get("EVT Weeks", 0)),
+            "evt_days": int(data.get("EVT Days", 0)),
+            "evt_qty": int(data.get("EVT Qty", 0)),
+            "pvt_weeks": int(data.get("PVT Weeks", data.get("pvt_weeks", 0))),
+            "pvt_days": int(data.get("PVT Days", 0)),
+            "pvt_qty": int(data.get("PVT Qty", 0)),
+            "comments": data.get("Comments", "")
+        }
+        
+        record_id = data.get("Product ID") # Compat ID
+        record = None
+        if record_id:
+            record = TestRecord.query.get(record_id)
+        
+        if not record:
+            record = TestRecord(**record_data)
+            db.session.add(record)
+        else:
+            for k, v in record_data.items():
+                setattr(record, k, v)
+        
+        db.session.commit()
+        return record.to_dict()
 
-            task_id = task_data.get("Task ID")
-            task = None
-            if task_id:
-                task = Task.query.filter_by(task_id=task_id).first()
-
-            if task:
-                task.task_name = task_data["Task Name"]
-                task.start_date = task_data["Start Date"]
-                task.duration = int(task_data["Duration"])
-                task.end_date = task_data["End Date"]
-                task.progress = progress
-                task.owner = task_data["Owner"]
-                task.status = status
-                task.phase = phase
-            else:
-                if not task_id:
-                    next_num = Task.query.count() + 1
-                    task_id = f"TSK-{next_num:03d}"
-                    while Task.query.filter_by(task_id=task_id).first() is not None:
-                        next_num += 1
-                        task_id = f"TSK-{next_num:03d}"
-                
-                task = Task(
-                    task_id=task_id,
-                    task_name=task_data["Task Name"],
-                    start_date=task_data["Start Date"],
-                    duration=int(task_data["Duration"]),
-                    end_date=task_data["End Date"],
-                    progress=progress,
-                    owner=task_data["Owner"],
-                    status=status,
-                    phase=phase
-                )
-                db.session.add(task)
-                
+    @staticmethod
+    def delete_task(record_id):
+        """Compat wrapper for legacy test calls."""
+        ExcelDataStore.initialize_db()
+        record = TestRecord.query.get(record_id)
+        if record:
+            db.session.delete(record)
             db.session.commit()
-            return task.to_dict()
-        except Exception as e:
-            print(f"Error saving task: {e}")
-            db.session.rollback()
-            raise e
-
-    @staticmethod
-    def delete_task(task_id):
-        """Deletes a task by ID from the SQLite database."""
-        ExcelDataStore.initialize_db()
-        try:
-            task = Task.query.filter_by(task_id=task_id).first()
-            if task:
-                db.session.delete(task)
-                db.session.commit()
-                return True
-            return False
-        except Exception as e:
-            print(f"Error deleting task: {e}")
-            db.session.rollback()
-            return False
+            return True
+        return False
 
 # Initialize the database on startup (only if not testing)
 if not is_testing:
     with app.app_context():
         ExcelDataStore.initialize_db()
 
+# Ensure DB is always ready even when Flask reloader spawns a child process
+_db_initialized = False
+
+@app.before_request
+def ensure_db():
+    global _db_initialized
+    if not _db_initialized:
+        ExcelDataStore.initialize_db()
+        _db_initialized = True
 
 # --- DECORATORS / HELPER FUNCTIONS ---
 def login_required(f):
-    from functools import wraps
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'logged_in' not in session:
+        if not session.get('logged_in'):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
-
-# --- ROUTES ---
+# --- VIEWS ---
 
 @app.route('/')
+@login_required
 def index():
-    return render_template('home.html')
-
-
+    return redirect(url_for('dashboard'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -331,175 +407,962 @@ def login():
             session['username'] = username
             return redirect(url_for('dashboard'))
         else:
-            error = "Invalid Dyson credentials. Please try again."
+            error = "Invalid credentials. Please try again."
     return render_template('login.html', error=error)
-
 
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('login'))
 
-
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    return render_template('dashboard.html', username=session.get('username'))
+    return render_template('dashboard.html', username=session.get('username'), active_page='dashboard')
 
+@app.route('/tables')
+@login_required
+def tables():
+    return render_template('tables.html', username=session.get('username'), active_page='tables')
+
+@app.route('/import')
+@login_required
+def import_page():
+    return render_template('import.html', username=session.get('username'), active_page='import')
+
+@app.route('/tables/<project_name>')
+@login_required
+def project_detail(project_name):
+    project = Project.query.filter_by(name=project_name).first()
+    if not project:
+        return redirect(url_for('tables'))
+    return render_template('project_detail.html', project=project, username=session.get('username'), active_page='tables')
 
 # --- API ENDPOINTS ---
 
-@app.route('/api/tasks', methods=['GET'])
+@app.route('/api/projects', methods=['GET', 'POST'])
 @login_required
-def get_tasks_api():
-    tasks = ExcelDataStore.get_tasks()
-    return jsonify(tasks)
-
-
-@app.route('/api/tasks', methods=['POST'])
-@login_required
-def add_task_api():
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-            
-        required = ["Task Name", "Start Date", "Duration", "Progress", "Owner"]
-        for field in required:
-            if field not in data or str(data[field]).strip() == "":
-                return jsonify({"error": f"Field '{field}' is required."}), 400
-
-        task_data = {
-            "Task Name": data["Task Name"],
-            "Start Date": data["Start Date"],
-            "Duration": int(data["Duration"]),
-            "Progress": int(data["Progress"]),
-            "Owner": data["Owner"],
-            "Status": data.get("Status", "Not Started"),
-            "Phase": data.get("Phase", "Proto")
-        }
+def api_projects():
+    if request.method == 'GET':
+        status_filter = request.args.get('status', 'Active')
+        projects = Project.query.filter_by(status=status_filter).all()
         
-        saved_task = ExcelDataStore.save_task(task_data)
-        return jsonify(saved_task), 201
-    except ValueError:
-        return jsonify({"error": "Duration and Progress must be valid integers."}), 400
+        # Single query to fetch row counts for all projects (avoys N+1 query issue)
+        counts = db.session.query(
+            TestRecord.project_name, 
+            db.func.count(TestRecord.id)
+        ).group_by(TestRecord.project_name).all()
+        counts_map = {project_name: count for project_name, count in counts}
+        
+        return jsonify([p.to_dict(row_count=counts_map.get(p.name, 0)) for p in projects])
+    
+    # Create project
+    data = request.json
+    if not data or 'name' not in data or not str(data['name']).strip():
+        return jsonify({"error": "Project name is required"}), 400
+        
+    name = str(data['name']).strip()
+    if Project.query.filter_by(name=name).first():
+        return jsonify({"error": f"Project '{name}' already exists"}), 400
+        
+    today_str = datetime.date.today().strftime('%m/%d/%Y')
+    proj = Project(
+        name=name,
+        description=data.get('description', ''),
+        status='Active',
+        created_at=today_str
+    )
+    db.session.add(proj)
+    db.session.commit()
+    return jsonify(proj.to_dict(0)), 201
+
+@app.route('/api/projects/<project_name>', methods=['PUT', 'DELETE'])
+@login_required
+def api_project_detail(project_name):
+    proj = Project.query.filter_by(name=project_name).first()
+    if not proj:
+        return jsonify({"error": "Project not found"}), 404
+        
+    if request.method == 'DELETE':
+        # Delete project and its records
+        TestRecord.query.filter_by(project_name=project_name).delete()
+        db.session.delete(proj)
+        db.session.commit()
+        return jsonify({"message": f"Project {project_name} deleted successfully"})
+        
+    # Update project (Rename or Archive)
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+        
+    if 'name' in data and data['name'] != proj.name:
+        new_name = str(data['name']).strip()
+        if Project.query.filter_by(name=new_name).first():
+            return jsonify({"error": f"Project '{new_name}' already exists"}), 400
+        # Cascade update rows
+        TestRecord.query.filter_by(project_name=proj.name).update({"project_name": new_name})
+        proj.name = new_name
+        
+    if 'description' in data:
+        proj.description = data['description']
+    if 'status' in data:
+        proj.status = data['status']
+        
+    db.session.commit()
+    return jsonify(proj.to_dict())
+
+@app.route('/api/projects/<project_name>/rows', methods=['GET', 'POST'])
+@login_required
+def api_project_rows(project_name):
+    if request.method == 'GET':
+        records = TestRecord.query.filter_by(project_name=project_name).all()
+        return jsonify([r.to_dict() for r in records])
+        
+    # Add Row
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+        
+    required = ["Category", "Test Method", "Test Number", "Start Date"]
+    for f in required:
+        if f not in data or not str(data[f]).strip():
+            return jsonify({"error": f"Field '{f}' is required"}), 400
+            
+    rec = TestRecord(
+        project_name=project_name,
+        category=data["Category"],
+        test_method=data["Test Method"],
+        test_number=data["Test Number"],
+        start_date=data["Start Date"],
+        proto_weeks=int(data.get("Proto Weeks", 0)),
+        proto_days=int(data.get("Proto Days", 0)),
+        proto_qty=int(data.get("Proto Qty", 0)),
+        dvt_weeks=int(data.get("DVT Weeks", 0)),
+        dvt_days=int(data.get("DVT Days", 0)),
+        dvt_qty=int(data.get("DVT Qty", 0)),
+        evt_weeks=int(data.get("EVT Weeks", 0)),
+        evt_days=int(data.get("EVT Days", 0)),
+        evt_qty=int(data.get("EVT Qty", 0)),
+        pvt_weeks=int(data.get("PVT Weeks", 0)),
+        pvt_days=int(data.get("PVT Days", 0)),
+        pvt_qty=int(data.get("PVT Qty", 0)),
+        comments=data.get("Comments", ""),
+        defect_qty=int(data.get("Defect Qty", 0))
+    )
+    db.session.add(rec)
+    db.session.commit()
+    return jsonify(rec.to_dict()), 201
+
+@app.route('/api/projects/<project_name>/rows/<int:row_id>', methods=['PUT', 'DELETE'])
+@login_required
+def api_project_row_detail(project_name, row_id):
+    rec = TestRecord.query.filter_by(project_name=project_name, id=row_id).first()
+    if not rec:
+        return jsonify({"error": "Row not found"}), 404
+        
+    if request.method == 'DELETE':
+        db.session.delete(rec)
+        db.session.commit()
+        return jsonify({"message": "Row deleted successfully"})
+        
+    # Update Row
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+        
+    rec.category = data.get("Category", rec.category)
+    rec.test_method = data.get("Test Method", rec.test_method)
+    rec.test_number = data.get("Test Number", rec.test_number)
+    rec.start_date = data.get("Start Date", rec.start_date)
+    
+    rec.proto_weeks = int(data.get("Proto Weeks", rec.proto_weeks))
+    rec.proto_days = int(data.get("Proto Days", rec.proto_days))
+    rec.proto_qty = int(data.get("Proto Qty", rec.proto_qty))
+    
+    rec.dvt_weeks = int(data.get("DVT Weeks", rec.dvt_weeks))
+    rec.dvt_days = int(data.get("DVT Days", rec.dvt_days))
+    rec.dvt_qty = int(data.get("DVT Qty", rec.dvt_qty))
+    
+    rec.evt_weeks = int(data.get("EVT Weeks", rec.evt_weeks))
+    rec.evt_days = int(data.get("EVT Days", rec.evt_days))
+    rec.evt_qty = int(data.get("EVT Qty", rec.evt_qty))
+    
+    rec.pvt_weeks = int(data.get("PVT Weeks", rec.pvt_weeks))
+    rec.pvt_days = int(data.get("PVT Days", rec.pvt_days))
+    rec.pvt_qty = int(data.get("PVT Qty", rec.pvt_qty))
+    
+    rec.comments = data.get("Comments", rec.comments)
+    rec.defect_qty = int(data.get("Defect Qty", rec.defect_qty or 0))
+    
+    db.session.commit()
+    return jsonify(rec.to_dict())
+
+# --- NEW SHAREPOINT & EXCEL COLUMN MAPPING ENDPOINTS ---
+
+@app.route('/api/sharepoint/browse', methods=['GET'])
+@login_required
+def api_sharepoint_browse():
+    """Lists Excel files available in the SharePoint Document Library."""
+    try:
+        files = SharePointService.list_files()
+        return jsonify(files)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-@app.route('/api/tasks/<task_id>', methods=['PUT'])
+@app.route('/api/sharepoint/headers', methods=['POST'])
 @login_required
-def update_task_api(task_id):
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-            
-        required = ["Task Name", "Start Date", "Duration", "Progress", "Owner"]
-        for field in required:
-            if field not in data or str(data[field]).strip() == "":
-                return jsonify({"error": f"Field '{field}' is required."}), 400
-
-        task_data = {
-            "Task ID": task_id,
-            "Task Name": data["Task Name"],
-            "Start Date": data["Start Date"],
-            "Duration": int(data["Duration"]),
-            "Progress": int(data["Progress"]),
-            "Owner": data["Owner"],
-            "Status": data.get("Status", "Not Started"),
-            "Phase": data.get("Phase", "Proto")
-        }
+def api_sharepoint_headers():
+    """Downloads the selected Excel file from SharePoint and extracts its worksheets and headers from the first sheet."""
+    data = request.json
+    if not data or 'file_path' not in data:
+        return jsonify({"error": "No file_path provided"}), 400
         
-        saved_task = ExcelDataStore.save_task(task_data)
-        return jsonify(saved_task)
-    except ValueError:
-        return jsonify({"error": "Duration and Progress must be valid integers."}), 400
+    file_path = data['file_path']
+    try:
+        file_content = SharePointService.download_file(file_path)
+        
+        import io
+        xl = pd.ExcelFile(io.BytesIO(file_content))
+        sheets = xl.sheet_names
+        
+        if not sheets:
+            return jsonify({"error": "No worksheets found in the Excel file"}), 400
+            
+        # Parse headers from the first sheet
+        df = xl.parse(sheets[0], nrows=1)
+        headers = [str(col) for col in df.columns.tolist()]
+        
+        return jsonify({
+            "success": True,
+            "sheets": sheets,
+            "headers": headers,
+            "file_path": file_path
+        })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Failed to parse Excel file: {str(e)}"}), 500
 
-
-@app.route('/api/tasks/<task_id>', methods=['DELETE'])
+@app.route('/api/sharepoint/sync', methods=['POST'])
 @login_required
-def delete_task_api(task_id):
-    success = ExcelDataStore.delete_task(task_id)
-    if success:
-        return jsonify({"message": f"Task {task_id} deleted successfully."})
-    return jsonify({"error": f"Task {task_id} not found."}), 404
-
+def api_sharepoint_sync():
+    """Saves the global column mapping and imports the Excel data from EACH sheet as a separate project."""
+    import json
+    data = request.json
+    if not data or 'file_path' not in data or 'mapping' not in data:
+        return jsonify({"error": "Missing required mapping configuration"}), 400
+        
+    file_path = data['file_path']
+    mapping = data['mapping']
+    
+    try:
+        # Save or update global ExcelMapping in database
+        existing_mapping = ExcelMapping.query.filter_by(project_name='GLOBAL_SYNC').first()
+        if existing_mapping:
+            existing_mapping.file_path = file_path
+            existing_mapping.sheet_name = 'ALL_SHEETS'
+            existing_mapping.mapping_json = json.dumps(mapping)
+        else:
+            new_mapping = ExcelMapping(
+                project_name='GLOBAL_SYNC',
+                file_path=file_path,
+                sheet_name='ALL_SHEETS',
+                mapping_json=json.dumps(mapping)
+            )
+            db.session.add(new_mapping)
+        db.session.commit()
+            
+        # Download and parse Excel file
+        file_content = SharePointService.download_file(file_path)
+        
+        import io
+        xl = pd.ExcelFile(io.BytesIO(file_content))
+        all_sheets = xl.sheet_names
+        
+        synced_projects = []
+        total_records_imported = 0
+        
+        for sheet_name in all_sheets:
+            # Skip "Master Data" sheet (case-insensitive)
+            if sheet_name.lower().strip() == 'master data':
+                continue
+                
+            # Create or find Project
+            proj = Project.query.filter_by(name=sheet_name).first()
+            if not proj:
+                proj = Project(
+                    name=sheet_name,
+                    description=f"Imported from SharePoint sheet {sheet_name}",
+                    status="Active",
+                    created_at=datetime.date.today().strftime('%m/%d/%Y')
+                )
+                db.session.add(proj)
+                db.session.commit()
+                
+            # Clear existing test records for this project
+            TestRecord.query.filter_by(project_name=sheet_name).delete()
+            
+            # Parse worksheet
+            df = xl.parse(sheet_name)
+            
+            imported_count = 0
+            for index, row in df.iterrows():
+                def get_val(field, default=None, is_int=False):
+                    col = mapping.get(field)
+                    if not col or col not in df.columns:
+                         return default
+                    val = row[col]
+                    if pd.isna(val):
+                        return default
+                    if is_int:
+                        try:
+                            return int(float(val))
+                        except ValueError:
+                            return 0
+                    return str(val)
+                    
+                # Parse start date
+                start_date_val = get_val("Start Date", "")
+                if start_date_val:
+                    try:
+                        col_mapping = mapping.get("Start Date")
+                        raw_date = row[col_mapping]
+                        if hasattr(raw_date, 'strftime'):
+                            start_date_val = raw_date.strftime('%Y-%m-%d')
+                        else:
+                            start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
+                    except Exception:
+                        start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+                else:
+                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+    
+                rec = TestRecord(
+                    project_name=sheet_name,
+                    category=get_val("Category", "General"),
+                    test_method=get_val("Test Method", "Testing"),
+                    test_number=get_val("Test Number", "TM-000"),
+                    start_date=start_date_val,
+                    
+                    proto_weeks=get_val("Proto Weeks", 0, is_int=True),
+                    proto_days=get_val("Proto Days", 0, is_int=True),
+                    proto_qty=get_val("Proto Qty", 0, is_int=True),
+                    
+                    dvt_weeks=get_val("DVT Weeks", 0, is_int=True),
+                    dvt_days=get_val("DVT Days", 0, is_int=True),
+                    dvt_qty=get_val("DVT Qty", 0, is_int=True),
+                    
+                    evt_weeks=get_val("EVT Weeks", 0, is_int=True),
+                    evt_days=get_val("EVT Days", 0, is_int=True),
+                    evt_qty=get_val("EVT Qty", 0, is_int=True),
+                    
+                    pvt_weeks=get_val("PVT Weeks", 0, is_int=True),
+                    pvt_days=get_val("PVT Days", 0, is_int=True),
+                    pvt_qty=get_val("PVT Qty", 0, is_int=True),
+                    
+                    defect_qty=get_val("Defect Qty", 0, is_int=True),
+                    comments=get_val("Comments", "")
+                )
+                db.session.add(rec)
+                imported_count += 1
+                
+            total_records_imported += imported_count
+            synced_projects.append(sheet_name)
+            
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": f"Successfully synced {len(synced_projects)} projects with {total_records_imported} records.",
+            "projects": synced_projects,
+            "count": total_records_imported
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to sync SharePoint Excel sheets: {str(e)}"}), 500
 
 @app.route('/api/sync-sharepoint', methods=['POST'])
 @login_required
 def sync_sharepoint():
-    try:
-        # Simulate SharePoint API network latency
-        import time
-        time.sleep(1.0)
-        
-        ExcelDataStore.initialize_excel()
-        
-        # Simulate read/write cloud sync
-        df = pd.read_excel(EXCEL_PATH)
-        df.to_excel(EXCEL_PATH, index=False)
-        
-        return jsonify({
-            "success": True,
-            "message": "SharePoint cloud database synced successfully! All records match tasks.xlsx."
-        })
-    except Exception as e:
+    """Triggers a real sync of all Excel sheets from SharePoint using the saved global configuration."""
+    import json
+    # Get saved global mapping
+    mapping_record = ExcelMapping.query.filter_by(project_name='GLOBAL_SYNC').first()
+    if not mapping_record:
         return jsonify({
             "success": False,
-            "error": f"Failed to sync with SharePoint: {str(e)}"
-        }), 500
+            "error": "No saved column mapping. Please configure the columns first using the SharePoint Extractor in the sidebar."
+        }), 400
+        
+    file_path = mapping_record.file_path
+    config = json.loads(mapping_record.mapping_json) if mapping_record.mapping_json else {}
+    selected_sheets = config.get("selected_sheets", [])
+    removed_cols_map = config.get("removed_columns", {})
+    
+    try:
+        file_content = SharePointService.download_file(file_path)
+        
+        import io
+        xl = pd.ExcelFile(io.BytesIO(file_content))
+        
+        synced_projects = []
+        total_records_imported = 0
+        
+        for sheet_name in selected_sheets:
+            if sheet_name not in xl.sheet_names:
+                continue
+                
+            # Parse sheet
+            df = xl.parse(sheet_name)
+            
+            # Filter out removed columns
+            removed_cols = removed_cols_map.get(sheet_name, [])
+            active_cols = [col for col in df.columns if str(col) not in removed_cols]
+            
+            # Perform automatic fuzzy mapping on remaining columns
+            mapping = {}
+            fuzzy_rules = {
+                "category": ['category', 'test category', 'group', 'device', 'product'],
+                "test_method": ['method', 'test method', 'method name', 'name'],
+                "test_number": ['number', 'test number', 'test #', 'ref', 'ref number', 'code'],
+                "start_date": ['start', 'start date', 'date', 'timeline start'],
+                "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
+                "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
+                
+                "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks'],
+                "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days'],
+                "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto_qty'],
+                
+                "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks'],
+                "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days'],
+                "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt_qty'],
+                
+                "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks'],
+                "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days'],
+                "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt_qty'],
+                
+                "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks'],
+                "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days'],
+                "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt_qty'],
+            }
+            
+            for field, rules in fuzzy_rules.items():
+                for col in active_cols:
+                    col_lower = str(col).lower().strip()
+                    if any(r == col_lower or r in col_lower for r in rules):
+                        mapping[field] = str(col)
+                        break
+                        
+            # Create or find Project
+            proj = Project.query.filter_by(name=sheet_name).first()
+            if not proj:
+                proj = Project(
+                    name=sheet_name,
+                    description=f"Imported from SharePoint sheet {sheet_name}",
+                    status="Active",
+                    created_at=datetime.date.today().strftime('%m/%d/%Y')
+                )
+                db.session.add(proj)
+                db.session.commit()
+                
+            # Clear existing test records for this project
+            TestRecord.query.filter_by(project_name=sheet_name).delete()
+            
+            imported_count = 0
+            for index, row in df.iterrows():
+                def get_val(field, default=None, is_int=False):
+                    col = mapping.get(field)
+                    if not col or col not in df.columns:
+                         return default
+                    val = row[col]
+                    if pd.isna(val):
+                        return default
+                    if is_int:
+                        try:
+                            return int(float(val))
+                        except ValueError:
+                            return 0
+                    return str(val)
+                    
+                # Parse start date
+                start_date_val = get_val("start_date", "")
+                if start_date_val:
+                    try:
+                        col_mapping = mapping.get("start_date")
+                        raw_date = row[col_mapping]
+                        if hasattr(raw_date, 'strftime'):
+                            start_date_val = raw_date.strftime('%Y-%m-%d')
+                        else:
+                            start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
+                    except Exception:
+                        start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+                else:
+                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+    
+                rec = TestRecord(
+                    project_name=sheet_name,
+                    category=get_val("category", "General"),
+                    test_method=get_val("test_method", "Testing"),
+                    test_number=get_val("test_number", "TM-000"),
+                    start_date=start_date_val,
+                    
+                    proto_weeks=get_val("proto_weeks", 0, is_int=True),
+                    proto_days=get_val("proto_days", 0, is_int=True),
+                    proto_qty=get_val("proto_qty", 0, is_int=True),
+                    
+                    dvt_weeks=get_val("dvt_weeks", 0, is_int=True),
+                    dvt_days=get_val("dvt_days", 0, is_int=True),
+                    dvt_qty=get_val("dvt_qty", 0, is_int=True),
+                    
+                    evt_weeks=get_val("evt_weeks", 0, is_int=True),
+                    evt_days=get_val("evt_days", 0, is_int=True),
+                    evt_qty=get_val("evt_qty", 0, is_int=True),
+                    
+                    pvt_weeks=get_val("pvt_weeks", 0, is_int=True),
+                    pvt_days=get_val("pvt_days", 0, is_int=True),
+                    pvt_qty=get_val("pvt_qty", 0, is_int=True),
+                    
+                    defect_qty=get_val("defect_qty", 0, is_int=True),
+                    comments=get_val("comments", "")
+                )
+                db.session.add(rec)
+                imported_count += 1
+                
+            total_records_imported += imported_count
+            synced_projects.append(sheet_name)
+            
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": f"SharePoint sync complete — synced {len(synced_projects)} projects with {total_records_imported} records.",
+            "projects": synced_projects,
+            "count": total_records_imported
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": f"Failed to sync SharePoint Excel: {str(e)}"}), 500
 
+
+# --- POWER BI NAVIGATOR & QUERY EDITOR VIEWS ---
+
+@app.route('/api/sharepoint/preview-all', methods=['POST'])
+@login_required
+def api_sharepoint_preview_all():
+    """Downloads the selected Excel file and returns the columns and first 100 rows of all sheets."""
+    data = request.json
+    if not data or 'file_path' not in data:
+        return jsonify({"error": "No file_path provided"}), 400
+        
+    file_path = data['file_path']
+    try:
+        file_content = SharePointService.download_file(file_path)
+        
+        import io
+        xl = pd.ExcelFile(io.BytesIO(file_content))
+        sheets = xl.sheet_names
+        
+        result = {}
+        for sheet in sheets:
+            # Skip "Master Data" sheet (case-insensitive)
+            if sheet.lower().strip() == 'master data':
+                continue
+                
+            df = xl.parse(sheet, nrows=100)
+            
+            # Convert all column names to string
+            columns = [str(col) for col in df.columns.tolist()]
+            
+            # Convert rows to list of lists (handling NaN)
+            rows = []
+            for _, row in df.iterrows():
+                row_vals = []
+                for val in row.tolist():
+                    if pd.isna(val):
+                        row_vals.append("")
+                    else:
+                        if isinstance(val, (datetime.date, datetime.datetime)):
+                            row_vals.append(val.strftime('%Y-%m-%d'))
+                        else:
+                            row_vals.append(val)
+                rows.append(row_vals)
+                
+            result[sheet] = {
+                "columns": columns,
+                "rows": rows
+            }
+            
+        return jsonify({
+            "success": True,
+            "file_path": file_path,
+            "sheets": result
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to preview Excel file: {str(e)}"}), 500
+
+@app.route('/api/sharepoint/load-transformed', methods=['POST'])
+@login_required
+def api_sharepoint_load_transformed():
+    """Imports selected sheets from Excel, applying column removals and automatic fuzzy mapping."""
+    data = request.json
+    if not data or 'file_path' not in data or 'selected_sheets' not in data:
+        return jsonify({"error": "Missing required configuration"}), 400
+        
+    file_path = data['file_path']
+    selected_sheets = data['selected_sheets']
+    removed_cols_map = data.get('removed_columns', {}) # dict of sheet_name -> list of removed cols
+    
+    try:
+        file_content = SharePointService.download_file(file_path)
+        
+        import io
+        xl = pd.ExcelFile(io.BytesIO(file_content))
+        
+        synced_projects = []
+        total_records_imported = 0
+        
+        for sheet_name in selected_sheets:
+            if sheet_name not in xl.sheet_names:
+                continue
+                
+            # Parse sheet
+            df = xl.parse(sheet_name)
+            
+            # Filter out removed columns
+            removed_cols = removed_cols_map.get(sheet_name, [])
+            active_cols = [col for col in df.columns if str(col) not in removed_cols]
+            
+            # Perform automatic fuzzy mapping on remaining columns
+            mapping = {}
+            fuzzy_rules = {
+                "category": ['category', 'test category', 'group', 'device', 'product'],
+                "test_method": ['method', 'test method', 'method name', 'name'],
+                "test_number": ['number', 'test number', 'test #', 'ref', 'ref number', 'code'],
+                "start_date": ['start', 'start date', 'date', 'timeline start'],
+                "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
+                "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
+                
+                "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks'],
+                "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days'],
+                "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto_qty'],
+                
+                "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks'],
+                "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days'],
+                "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt_qty'],
+                
+                "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks'],
+                "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days'],
+                "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt_qty'],
+                
+                "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks'],
+                "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days'],
+                "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt_qty'],
+            }
+            
+            for field, rules in fuzzy_rules.items():
+                for col in active_cols:
+                    col_lower = str(col).lower().strip()
+                    if any(r == col_lower or r in col_lower for r in rules):
+                        mapping[field] = str(col)
+                        break
+                        
+            # Create or find Project
+            proj = Project.query.filter_by(name=sheet_name).first()
+            if not proj:
+                proj = Project(
+                    name=sheet_name,
+                    description=f"Imported from SharePoint sheet {sheet_name}",
+                    status="Active",
+                    created_at=datetime.date.today().strftime('%m/%d/%Y')
+                )
+                db.session.add(proj)
+                db.session.commit()
+                
+            # Clear existing test records for this project
+            TestRecord.query.filter_by(project_name=sheet_name).delete()
+            
+            imported_count = 0
+            for index, row in df.iterrows():
+                def get_val(field, default=None, is_int=False):
+                    col = mapping.get(field)
+                    if not col or col not in df.columns:
+                         return default
+                    val = row[col]
+                    if pd.isna(val):
+                        return default
+                    if is_int:
+                        try:
+                            return int(float(val))
+                        except ValueError:
+                            return 0
+                    return str(val)
+                    
+                # Parse start date
+                start_date_val = get_val("start_date", "")
+                if start_date_val:
+                    try:
+                        col_mapping = mapping.get("start_date")
+                        raw_date = row[col_mapping]
+                        if hasattr(raw_date, 'strftime'):
+                            start_date_val = raw_date.strftime('%Y-%m-%d')
+                        else:
+                            start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
+                    except Exception:
+                        start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+                else:
+                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+    
+                rec = TestRecord(
+                    project_name=sheet_name,
+                    category=get_val("category", "General"),
+                    test_method=get_val("test_method", "Testing"),
+                    test_number=get_val("test_number", "TM-000"),
+                    start_date=start_date_val,
+                    
+                    proto_weeks=get_val("proto_weeks", 0, is_int=True),
+                    proto_days=get_val("proto_days", 0, is_int=True),
+                    proto_qty=get_val("proto_qty", 0, is_int=True),
+                    
+                    dvt_weeks=get_val("dvt_weeks", 0, is_int=True),
+                    dvt_days=get_val("dvt_days", 0, is_int=True),
+                    dvt_qty=get_val("dvt_qty", 0, is_int=True),
+                    
+                    evt_weeks=get_val("evt_weeks", 0, is_int=True),
+                    evt_days=get_val("evt_days", 0, is_int=True),
+                    evt_qty=get_val("evt_qty", 0, is_int=True),
+                    
+                    pvt_weeks=get_val("pvt_weeks", 0, is_int=True),
+                    pvt_days=get_val("pvt_days", 0, is_int=True),
+                    pvt_qty=get_val("pvt_qty", 0, is_int=True),
+                    
+                    defect_qty=get_val("defect_qty", 0, is_int=True),
+                    comments=get_val("comments", "")
+                )
+                db.session.add(rec)
+                imported_count += 1
+                
+            total_records_imported += imported_count
+            synced_projects.append(sheet_name)
+            
+        # Save global sync configuration
+        import json
+        mapping_record = ExcelMapping.query.filter_by(project_name='GLOBAL_SYNC').first()
+        if not mapping_record:
+            mapping_record = ExcelMapping(project_name='GLOBAL_SYNC')
+            db.session.add(mapping_record)
+        mapping_record.file_path = file_path
+        mapping_record.sheet_name = 'ALL'
+        mapping_record.mapping_json = json.dumps({
+            "selected_sheets": selected_sheets,
+            "removed_columns": removed_cols_map
+        })
+        
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": f"Successfully loaded and transformed {len(synced_projects)} projects with {total_records_imported} records.",
+            "projects": synced_projects,
+            "count": total_records_imported
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Failed to load transformed data: {str(e)}"}), 500
+
+
+# --- AI CHAT ENDPOINT ---
+@app.route('/api/chat', methods=['POST'])
+@login_required
+def api_chat():
+    """Intelligent AI assistant for operations data analysis and report generation."""
+    data = request.json
+    if not data or 'query' not in data:
+        return jsonify({"response": "Please send a query."}), 400
+
+    query = data.get('query', '').strip().lower()
+    context_project = data.get('project', None)
+
+    # Gather all projects for context
+    all_projects = Project.query.filter_by(status='Active').all()
+    all_project_names = [p.name for p in all_projects]
+
+    # --- Intent: List all projects ---
+    if any(kw in query for kw in ['list projects', 'all projects', 'show projects', 'what projects']):
+        names = ', '.join(all_project_names) if all_project_names else 'No active projects'
+        return jsonify({"response": f"📋 There are {len(all_project_names)} active projects:\n{names}"})
+
+    # --- Intent: Count / summary of a specific project ---
+    target_project = None
+    for pname in all_project_names:
+        if pname.lower() in query:
+            target_project = pname
+            break
+    if not target_project and context_project:
+        target_project = context_project
+
+    # --- Intent: Generate / create report ---
+    report_keywords = ['generate report', 'create report', 'make report', 'export report', 'generate pdf', 'create pdf', 'export pdf', 'download report']
+    if any(kw in query for kw in report_keywords):
+        proj = target_project or context_project or (all_project_names[0] if all_project_names else None)
+        if proj:
+            return jsonify({
+                "response": f"📄 Generating PDF report for **Project {proj}**... The download will start shortly!",
+                "generate_report": True,
+                "report_project": proj
+            })
+        else:
+            return jsonify({"response": "Please specify a project name for the report, e.g. 'Generate report for 893'."})
+
+    # --- Intent: Summarize a project ---
+    summary_keywords = ['summary', 'summarize', 'overview', 'status', 'how many', 'records', 'rows', 'test methods', 'details']
+    if any(kw in query for kw in summary_keywords) and target_project:
+        records = TestRecord.query.filter_by(project_name=target_project).all()
+        total_qty = sum(
+            (r.proto_qty or 0) + (r.dvt_qty or 0) + (r.evt_qty or 0) + (r.pvt_qty or 0)
+            for r in records
+        )
+        rejections = [r for r in records if r.comments and r.comments.strip()]
+        proj_obj = Project.query.filter_by(name=target_project).first()
+        desc = proj_obj.description if proj_obj and proj_obj.description else 'No description'
+
+        response = (
+            f"📊 **Project {target_project} Summary**\n"
+            f"Description: {desc}\n"
+            f"Test Records: {len(records)}\n"
+            f"Total Qty across all phases: {total_qty}\n"
+            f"Records with rejections: {len(rejections)}\n"
+        )
+        if rejections:
+            response += "\nRejection notes:\n"
+            for r in rejections[:3]:  # Show max 3
+                response += f"  • [{r.category}] {r.test_method}: {r.comments}\n"
+            if len(rejections) > 3:
+                response += f"  ... and {len(rejections) - 3} more."
+        return jsonify({"response": response})
+
+    # --- Intent: Summarize all projects ---
+    if any(kw in query for kw in ['summarize all', 'overview all', 'all projects status', 'total projects']):
+        total_records = TestRecord.query.count()
+        total_rejections = TestRecord.query.filter(TestRecord.comments != None, TestRecord.comments != '').count()
+        response = (
+            f"📊 **Operations Overview**\n"
+            f"Active Projects: {len(all_project_names)}\n"
+            f"Total Test Records: {total_records}\n"
+            f"Records with Rejections: {total_rejections}\n\n"
+            f"Projects: {', '.join(all_project_names[:10])}" +
+            (f" ... and {len(all_project_names) - 10} more" if len(all_project_names) > 10 else "")
+        )
+        return jsonify({"response": response})
+
+    # --- Intent: Rejection analysis ---
+    if any(kw in query for kw in ['rejection', 'rejected', 'fail', 'not working', 'issues', 'problems']):
+        if target_project:
+            records = TestRecord.query.filter_by(project_name=target_project).filter(
+                TestRecord.comments != None, TestRecord.comments != ''
+            ).all()
+            if records:
+                resp = f"⚠️ **Rejections in Project {target_project}** ({len(records)} found):\n"
+                for r in records:
+                    resp += f"• [{r.category}] {r.test_method} — {r.comments}\n"
+                return jsonify({"response": resp})
+            else:
+                return jsonify({"response": f"✅ No rejections recorded for Project {target_project}."})
+        else:
+            total_rej = TestRecord.query.filter(
+                TestRecord.comments != None, TestRecord.comments != ''
+            ).count()
+            return jsonify({"response": f"⚠️ There are **{total_rej}** test records with rejection notes across all projects. Specify a project name for details."})
+
+    # --- Intent: SharePoint sync help ---
+    if any(kw in query for kw in ['sync', 'sharepoint', 'refresh data', 'update data']):
+        return jsonify({"response": "🔄 To sync data from SharePoint, click **SharePoint Sync** in the left sidebar. This will pull in any new projects and update existing ones."})
+
+    # --- Intent: PDF/export help ---
+    if any(kw in query for kw in ['pdf', 'export', 'download', 'report']):
+        proj = target_project or context_project or 'current project'
+        return jsonify({
+            "response": f"📄 I can generate a PDF report for you! Just say:\n'Generate report for {proj}'\nOr use the **Export PDF Report** button in the left sidebar."
+        })
+
+    # --- Default / help response ---
+    help_text = (
+        "🤖 **Dyson AI Assistant** — I can help you with:\n"
+        "• **'List all projects'** — see all active projects\n"
+        "• **'Summary of project 893'** — get stats for a specific project\n"
+        "• **'Generate report for 990'** — create and download a PDF\n"
+        "• **'Rejections in project 893'** — view rejection analysis\n"
+        "• **'Summarize all projects'** — full operations overview\n"
+        f"\nCurrently viewing: **Project {context_project or 'N/A'}**"
+    )
+    return jsonify({"response": help_text})
 
 # --- GANTT CHART GENERATION ---
-def generate_gantt_chart_image(tasks, filepath):
-    """Generates a Gantt chart image using Matplotlib and saves it to filepath."""
-    if not tasks:
+def generate_gantt_chart_image(records, filepath, project_name=None):
+    """Generates a multi-row project Gantt timeline image using Matplotlib and saves it."""
+    if not records:
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.text(0.5, 0.5, "No active tasks to display", 
+        ax.text(0.5, 0.5, "No active test methods to display", 
                 horizontalalignment='center', verticalalignment='center', fontsize=12)
         ax.set_axis_off()
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         plt.close()
         return
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    # Filter by project if specified
+    if project_name:
+        records = [r for r in records if r.get("Project Name") == project_name]
+
+    if not records:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.text(0.5, 0.5, f"No active test methods for Project {project_name}", 
+                horizontalalignment='center', verticalalignment='center', fontsize=12)
+        ax.set_axis_off()
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.close()
+        return
+
+    fig, ax = plt.subplots(figsize=(11, 6))
     
-    # Custom colored phases
     phase_colors = {
-        "Proto": "#00539C",  # Prussian Blue
-        "EVT": "#EE7623",    # Orange
-        "DVT": "#00A650",    # Green
-        "PVT": "#D6257D"     # Fuchsia Accent
+        "Proto": "#8E44AD",  # Purple
+        "DVT": "#2980B9",    # Blue
+        "EVT": "#27AE60",    # Green
+        "PVT": "#D35400"     # Orange
     }
-    default_color = "#888888"
     
     y_labels = []
     y_ticks = []
     
-    # Render Gantt bars (reversed to show top-down)
-    for idx, t in enumerate(reversed(tasks)):
+    # We plot each phase of each test record on its own separate row
+    row_idx = 0
+    
+    # Reverse to show top-down
+    for r in reversed(records):
         try:
-            start_date = datetime.datetime.strptime(t["Start Date"], "%Y-%m-%d")
-            end_date = datetime.datetime.strptime(t["End Date"], "%Y-%m-%d")
+            current_start = datetime.datetime.strptime(r["Start Date"], "%Y-%m-%d")
         except Exception:
             continue
             
-        phase = t.get("Phase", "Proto")
-        color = phase_colors.get(phase, default_color)
+        phases = [
+            ("Proto", r.get("Proto Weeks", 0), r.get("Proto Days", 0)),
+            ("DVT", r.get("DVT Weeks", 0), r.get("DVT Days", 0)),
+            ("EVT", r.get("EVT Weeks", 0), r.get("EVT Days", 0)),
+            ("PVT", r.get("PVT Weeks", 0), r.get("PVT Days", 0))
+        ]
         
-        # Draw the bar representing the schedule duration
-        ax.barh(idx, (end_date - start_date).days, left=start_date, 
-                color=color, edgecolor='none', height=0.4, alpha=0.95)
-        
-        # Display product name and its test phase on the Y axis
-        y_labels.append(f"{t['Task Name']} ({phase})")
-        y_ticks.append(idx)
-        
-    ax.set_yticks(y_ticks)
-    ax.set_yticklabels(y_labels, fontsize=9, fontweight='bold', color='#121212')
+        for phase_name, weeks, days in phases:
+            duration_days = int(weeks) * 7 + int(days)
+            if duration_days > 0:
+                # Plot bar on its own row
+                ax.barh(row_idx, duration_days, left=current_start, color=phase_colors[phase_name], edgecolor='none', height=0.4, alpha=0.9)
+                
+                # Add text label inside the bar
+                label_text = f"[{r['Category']}] {r['Test Method']} ({r['Test Number']}) - {phase_name}"
+                ax.text(current_start + datetime.timedelta(days=1), row_idx, label_text, 
+                        va='center', ha='left', color='white', fontsize=8, fontweight='bold')
+                
+                y_labels.append(label_text)
+                y_ticks.append(row_idx)
+                row_idx += 1
+                
+            # Move the timeline cursor forward for the next phase
+            current_start += datetime.timedelta(days=duration_days)
+            
+    ax.set_yticks([]) # Hide Y-axis labels since they are drawn inside the bars
     
     # Configure X-axis as dates
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=7))
@@ -518,28 +1381,34 @@ def generate_gantt_chart_image(tasks, filepath):
     legend_elements = [Patch(facecolor=color, label=phase) for phase, color in phase_colors.items()]
     ax.legend(handles=legend_elements, loc='upper right', frameon=True, facecolor='#ffffff', edgecolor='#e5e5e7', fontsize=8)
     
-    plt.title("Test Operations Schedule by Phase", fontsize=12, fontweight='bold', pad=15, color='#121212')
+    title_text = f"Project Gantt Timeline - Project {project_name}" if project_name else "Project Gantt Timeline"
+    plt.title(title_text, fontsize=12, fontweight='bold', pad=15, color='#121212')
     plt.tight_layout()
     plt.savefig(filepath, dpi=300)
     plt.close()
 
-
 # --- PDF REPORT GENERATION ---
-def generate_pdf_report(filename):
+def generate_pdf_report(filename, project_name=None):
     """Generates a styled Test Operations PDF report containing a Gantt chart and rejected products."""
-    # Fetch all tasks from SQLite database
-    tasks = ExcelDataStore.get_tasks()
+    ExcelDataStore.initialize_db()
     
+    # Fetch records filtered by project
+    if project_name:
+        records = TestRecord.query.filter_by(project_name=project_name).all()
+        records_dict = [r.to_dict() for r in records]
+    else:
+        records_dict = ExcelDataStore.get_tasks()
+        
     # 1. Generate the Gantt Chart Image
     gantt_image_path = os.path.join(UPLOAD_FOLDER, "gantt_chart_report.png")
-    generate_gantt_chart_image(tasks, gantt_image_path)
+    generate_gantt_chart_image(records_dict, gantt_image_path, project_name)
     
     doc = SimpleDocTemplate(filename, pagesize=letter,
                             rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
     story = []
     styles = getSampleStyleSheet()
     
-    # Custom color palette (Removing Dyson branding, generic technical theme)
+    # Custom color palette
     charcoal = colors.HexColor("#121212")
     steel_gray = colors.HexColor("#555555")
     prussian_blue = colors.HexColor("#00539C")
@@ -547,12 +1416,11 @@ def generate_pdf_report(filename):
     border_color = colors.HexColor("#E5E5E7")
     danger_red = colors.HexColor("#C0392B")
     
-    # Custom styles
     title_style = ParagraphStyle(
         'OpsTitle',
         parent=styles['Heading1'],
-        fontSize=24,
-        leading=28,
+        fontSize=22,
+        leading=26,
         textColor=charcoal,
         fontName='Helvetica-Bold',
         spaceAfter=6
@@ -571,8 +1439,8 @@ def generate_pdf_report(filename):
     section_title_style = ParagraphStyle(
         'OpsSection',
         parent=styles['Heading2'],
-        fontSize=14,
-        leading=18,
+        fontSize=13,
+        leading=17,
         textColor=prussian_blue,
         fontName='Helvetica-Bold',
         spaceBefore=15,
@@ -583,8 +1451,8 @@ def generate_pdf_report(filename):
     cell_header = ParagraphStyle(
         'OpsHeader',
         parent=styles['Normal'],
-        fontSize=9,
-        leading=11,
+        fontSize=8,
+        leading=10,
         textColor=colors.white,
         fontName='Helvetica-Bold'
     )
@@ -592,8 +1460,8 @@ def generate_pdf_report(filename):
     cell_style = ParagraphStyle(
         'OpsCell',
         parent=styles['Normal'],
-        fontSize=9,
-        leading=12,
+        fontSize=8,
+        leading=11,
         textColor=charcoal,
         fontName='Helvetica'
     )
@@ -601,75 +1469,118 @@ def generate_pdf_report(filename):
     cell_bold = ParagraphStyle(
         'OpsCellBold',
         parent=styles['Normal'],
-        fontSize=9,
-        leading=12,
+        fontSize=8,
+        leading=11,
         textColor=danger_red,
         fontName='Helvetica-Bold'
     )
     
-    # Header Title (Generic title, removed 'Dyson')
-    story.append(Paragraph("Daily Test Operations Report", title_style))
+    # Header Title
+    doc_title = f"Project Gantt Timeline - Project {project_name}" if project_name else "Daily Test Operations Report"
+    story.append(Paragraph(doc_title, title_style))
     story.append(Paragraph(f"Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Confidential Operations Data", subtitle_style))
     
     # Add Gantt Chart Section
     story.append(Paragraph("Test Method Milestones (Gantt Chart)", section_title_style))
-    from reportlab.platypus import Image
-    story.append(Image(gantt_image_path, width=500, height=250))
+    story.append(Image(gantt_image_path, width=500, height=270))
     story.append(Spacer(1, 20))
     
-    # Filter for Rejected Products only
-    rejected_tasks = [t for t in tasks if t.get("Status") == "Rejected"]
+    # Filter for rejected rows (where comments is not empty)
+    rejected_records = [r for r in records_dict if str(r.get("Comments", "")).strip() != ""]
     
     story.append(Paragraph("Rejected Products Inventory", section_title_style))
     
-    # Table Headers (Owner column renamed to Rejection Comments)
-    table_data = [[
-        Paragraph("ID", cell_header),
-        Paragraph("Product Name", cell_header),
-        Paragraph("Phase", cell_header),
-        Paragraph("Start Date", cell_header),
-        Paragraph("End Date", cell_header),
-        Paragraph("Rejection Comments", cell_header)
+    # Full test records table (all records, not just rejections)
+    story.append(Paragraph("Test Records Summary", section_title_style))
+    all_table_data = [[
+        Paragraph("#", cell_header),
+        Paragraph("Category", cell_header),
+        Paragraph("Test Method", cell_header),
+        Paragraph("Test #", cell_header),
+        Paragraph("Proto\n(W/D/Qty)", cell_header),
+        Paragraph("DVT\n(W/D/Qty)", cell_header),
+        Paragraph("EVT\n(W/D/Qty)", cell_header),
+        Paragraph("PVT\n(W/D/Qty)", cell_header),
+        Paragraph("Defect\nQty", cell_header),
+        Paragraph("Rejection Comment/s", cell_header)
     ]]
-    
-    if rejected_tasks:
-        for t in rejected_tasks:
+    for idx, r in enumerate(records_dict, 1):
+        defect_qty = r.get("Defect Qty", 0)
+        defect_style = cell_bold if defect_qty and int(defect_qty) > 0 else cell_style
+        all_table_data.append([
+            Paragraph(str(idx), cell_style),
+            Paragraph(r.get("Category", ""), cell_style),
+            Paragraph(r.get("Test Method", ""), cell_style),
+            Paragraph(r.get("Test Number", ""), cell_style),
+            Paragraph(f"{r.get('Proto Weeks',0)}w {r.get('Proto Days',0)}d / {r.get('Proto Qty',0)}", cell_style),
+            Paragraph(f"{r.get('DVT Weeks',0)}w {r.get('DVT Days',0)}d / {r.get('DVT Qty',0)}", cell_style),
+            Paragraph(f"{r.get('EVT Weeks',0)}w {r.get('EVT Days',0)}d / {r.get('EVT Qty',0)}", cell_style),
+            Paragraph(f"{r.get('PVT Weeks',0)}w {r.get('PVT Days',0)}d / {r.get('PVT Qty',0)}", cell_style),
+            Paragraph(str(defect_qty), defect_style),
+            Paragraph(r.get("Comments", "-") or "-", cell_bold if r.get("Comments") else cell_style)
+        ])
+    if not records_dict:
+        all_table_data.append([Paragraph("No records found.", cell_style)] + [Paragraph("-", cell_style)] * 9)
+
+    all_table = Table(all_table_data, colWidths=[18, 80, 90, 55, 62, 62, 62, 62, 35, 100])
+    all_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), charcoal),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('ALIGN', (0,0), (0,-1), 'CENTER'),
+        ('ALIGN', (8,0), (8,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('GRID', (0,0), (-1,-1), 0.4, border_color),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, light_bg])
+    ]))
+    story.append(all_table)
+    story.append(Spacer(1, 14))
+
+    # Rejections-only sub-table
+    rejected_records = [r for r in records_dict if str(r.get("Comments", "")).strip() != "" or int(r.get("Defect Qty", 0)) > 0]
+    story.append(Paragraph("Rejected Products Inventory", section_title_style))
+    table_data = [[
+        Paragraph("Category", cell_header),
+        Paragraph("Test Method", cell_header),
+        Paragraph("Test Number", cell_header),
+        Paragraph("Defect Qty", cell_header),
+        Paragraph("Rejection Comment/s", cell_header)
+    ]]
+    if rejected_records:
+        for r in rejected_records:
             table_data.append([
-                Paragraph(t["Task ID"], cell_bold),
-                Paragraph(t["Task Name"], cell_style),
-                Paragraph(t.get("Phase", "Proto"), cell_style),
-                Paragraph(str(t["Start Date"]), cell_style),
-                Paragraph(str(t["End Date"]), cell_style),
-                Paragraph(t["Owner"], cell_bold)  # Owner contains rejection comments
+                Paragraph(r.get("Category", ""), cell_style),
+                Paragraph(r.get("Test Method", ""), cell_style),
+                Paragraph(r.get("Test Number", ""), cell_style),
+                Paragraph(str(r.get("Defect Qty", 0)), cell_bold),
+                Paragraph(r.get("Comments", "") or "-", cell_bold)
             ])
     else:
-        # Empty state row
         table_data.append([
-            Paragraph("-", cell_style),
-            Paragraph("No rejected products recorded in the system.", cell_style),
-            Paragraph("-", cell_style),
-            Paragraph("-", cell_style),
-            Paragraph("-", cell_style),
-            Paragraph("-", cell_style)
+            Paragraph("No rejected products recorded for this project.", cell_style),
+            Paragraph("-", cell_style), Paragraph("-", cell_style),
+            Paragraph("-", cell_style), Paragraph("-", cell_style)
         ])
-        
-    # Table Column Widths (Sum = 500)
-    tasks_table = Table(table_data, colWidths=[50, 120, 45, 60, 60, 165])
+
+    tasks_table = Table(table_data, colWidths=[110, 110, 70, 55, 185])
     tasks_table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), charcoal),
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('GRID', (0,0), (-1,-1), 0.5, border_color),
-        ('TOPPADDING', (0,0), (-1,-1), 8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, light_bg])
     ]))
     story.append(tasks_table)
     
     # Footer Note
-    story.append(Spacer(1, 40))
+    story.append(Spacer(1, 30))
     footer_style = ParagraphStyle(
         'OpsFooter',
         parent=styles['Normal'],
@@ -681,17 +1592,17 @@ def generate_pdf_report(filename):
     
     doc.build(story)
 
-
 @app.route('/generate-report', methods=['GET'])
 @login_required
 def generate_report():
-    pdf_filename = os.path.join(UPLOAD_FOLDER, "Dyson_Daily_Operations_Report.pdf")
+    project_name = request.args.get('project')
+    pdf_filename = os.path.join(UPLOAD_FOLDER, "Daily_Operations_Report.pdf")
     try:
-        generate_pdf_report(pdf_filename)
-        return send_file(pdf_filename, as_attachment=True, download_name="Dyson_Daily_Operations_Report.pdf")
+        generate_pdf_report(pdf_filename, project_name)
+        download_name = f"Daily_Operations_Report_{project_name}.pdf" if project_name else "Daily_Operations_Report.pdf"
+        return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
-
 
 # --- EMAIL AUTOMATION ---
 
@@ -699,175 +1610,15 @@ def generate_report():
 @login_required
 def send_email():
     recipient = request.form.get('recipient') or os.getenv('MAIL_RECIPIENT', 'operations-manager@dyson.com')
-    subject = request.form.get('subject') or f"Dyson Operations Daily Report - {datetime.date.today().strftime('%Y-%m-%d')}"
+    subject = request.form.get('subject') or f"Daily Test Operations Report - {datetime.date.today().strftime('%Y-%m-%d')}"
     body = """Dear Team,
 
-Please find attached the Dyson Operations Daily Project Status Report containing the latest project tasks, timeline progression, and completion rates.
+Please find attached the Daily Test Operations Project Status Report containing the latest project tasks, timeline progression, and completion rates.
 
-This email was auto-generated by the Dyson Operations Dashboard.
-
-Best regards,
-Dyson Dashboard System
+This email was auto-generated by the Operations Dashboard.
 """
-    
-    pdf_filename = os.path.join(UPLOAD_FOLDER, "Dyson_Daily_Operations_Report.pdf")
-    
-    try:
-        # 1. Generate the PDF
-        generate_pdf_report(pdf_filename)
-        
-        # 2. Check if SMTP configuration is set. If not, run in simulated mode
-        smtp_server = app.config['MAIL_SERVER']
-        smtp_user = app.config['MAIL_USERNAME']
-        
-        if not smtp_server or not smtp_user:
-            # Simulated Email Mode
-            sim_log = {
-                "status": "Simulated",
-                "message": "SMTP server not configured. Running in Simulated Email Mode.",
-                "details": {
-                    "To": recipient,
-                    "From": app.config['MAIL_DEFAULT_SENDER'],
-                    "Subject": subject,
-                    "Attachments": [os.path.basename(pdf_filename)],
-                    "Body": body,
-                    "SMTP Server": "Simulated Console Mailer (Localhost)"
-                }
-            }
-            print("\n" + "="*50)
-            print("SIMULATED EMAIL SENT:")
-            print(f"To: {recipient}")
-            print(f"From: {app.config['MAIL_DEFAULT_SENDER']}")
-            print(f"Subject: {subject}")
-            print(f"Attachment: {os.path.basename(pdf_filename)}")
-            print("="*50 + "\n")
-            return jsonify({
-                "success": True, 
-                "simulated": True, 
-                "message": "Email sent successfully (SIMULATED MODE). Details printed to console.",
-                "log": sim_log
-            })
-            
-        # 3. Real SMTP Sending
-        msg = Message(
-            subject=subject,
-            recipients=[recipient],
-            body=body
-        )
-        with open(pdf_filename, 'rb') as fp:
-            msg.attach("Dyson_Daily_Operations_Report.pdf", "application/pdf", fp.read())
-            
-        mail.send(msg)
-        return jsonify({
-            "success": True, 
-            "simulated": False, 
-            "message": f"Email sent successfully to {recipient}."
-        })
-        
-    except Exception as e:
-        print(f"Error sending email: {e}")
-        return jsonify({
-            "success": False, 
-            "error": f"Failed to send email: {str(e)}. (Check your SMTP credentials in .env)"
-        }), 500
-
-
-# --- AI CHATBOT ENDPOINT ---
-
-@app.route('/chat', methods=['POST'])
-@login_required
-def chat():
-    try:
-        data = request.json
-        user_message = data.get("message", "").strip()
-        
-        if not user_message:
-            return jsonify({"response": "I didn't receive any message. How can I help you today?"})
-            
-        # Load active tasks for data-aware querying
-        tasks = ExcelDataStore.get_tasks()
-        df = pd.DataFrame(tasks)
-        
-        msg_lower = user_message.lower()
-        
-        # --- DATA-AWARE CHAT LOGIC ---
-        response_text = ""
-        
-        if len(df) == 0:
-            response_text = "There are currently no tasks in the system. You can add one by using the form on the dashboard!"
-            
-        elif any(kw in msg_lower for kw in ["how many tasks", "total tasks", "number of tasks", "task count"]):
-            total_tasks = len(df)
-            completed = len(df[df["Progress"] == 100])
-            in_prog = len(df[(df["Progress"] > 0) & (df["Progress"] < 100)])
-            not_start = len(df[df["Progress"] == 0])
-            
-            response_text = f"There are currently **{total_tasks}** tasks in the system:\n\n" \
-                            f"- **{completed}** Completed (100%)\n" \
-                            f"- **{in_prog}** In Progress\n" \
-                            f"- **{not_start}** Not Started"
-                            
-        elif any(kw in msg_lower for kw in ["average progress", "mean progress", "overall progress"]):
-            avg_prog = int(df["Progress"].mean())
-            response_text = f"The average progress of all active projects is **{avg_prog}%**."
-            
-        elif any(kw in msg_lower for kw in ["overdue", "behind schedule", "late"]):
-            today_str = datetime.date.today().strftime("%Y-%m-%d")
-            # Overdue = End Date < today and progress < 100
-            overdue_df = df[(df["End Date"] < today_str) & (df["Progress"] < 100)]
-            
-            if len(overdue_df) == 0:
-                response_text = "Great news! There are currently no overdue tasks. All projects are on track."
-            else:
-                response_text = f"There are **{len(overdue_df)}** task(s) currently overdue:\n\n"
-                for _, row in overdue_df.iterrows():
-                    response_text += f"- **{row['Task Name']}** (End Date: {row['End Date']}, Progress: {row['Progress']}%)\n"
-                response_text += "\nWe should prioritize these to get back on schedule."
-                
-        elif any(kw in msg_lower for kw in ["completed", "done", "finished"]):
-            comp_df = df[df["Progress"] == 100]
-            if len(comp_df) == 0:
-                response_text = "No tasks are completed yet. Let's keep working!"
-            else:
-                response_text = f"Here are the completed tasks (**{len(comp_df)}**):\n\n"
-                for _, row in comp_df.iterrows():
-                    response_text += f"- **{row['Task Name']}** (Owned by: {row['Owner']})\n"
-                    
-        elif any(kw in msg_lower for kw in ["in progress", "active"]):
-            ip_df = df[(df["Progress"] > 0) & (df["Progress"] < 100)]
-            if len(ip_df) == 0:
-                response_text = "There are no tasks currently in progress."
-            else:
-                response_text = f"Here are the active tasks in progress (**{len(ip_df)}**):\n\n"
-                for _, row in ip_df.iterrows():
-                    response_text += f"- **{row['Task Name']}** ({row['Progress']}% complete, Ends: {row['End Date']})\n"
-                    
-        elif "list" in msg_lower or "show tasks" in msg_lower or "all tasks" in msg_lower:
-            response_text = "Here is the list of all current tasks in the database:\n\n"
-            for _, row in df.iterrows():
-                response_text += f"- **{row['Task ID']}**: {row['Task Name']} | Progress: **{row['Progress']}%** | Owner: {row['Owner']} | Ends: {row['End Date']}\n"
-                
-        elif "dyson" in msg_lower:
-            response_text = "Dyson is a global technology enterprise founded by Sir James Dyson. We specialize in cyclone vacuum cleaners, bladeless fans, air purifiers, hair dryers, and high-performance lighting. \n\nThis dashboard helps our operations team track engineering sprints and product development milestones."
-            
-        elif any(kw in msg_lower for kw in ["help", "what can you do", "capabilities"]):
-            response_text = "I am the **Dyson Operations AI Assistant**. I can analyze your project database in real-time. Try asking me:\n\n" \
-                            "- *'How many tasks are there?'*\n" \
-                            "- *'What is our average progress?'*\n" \
-                            "- *'Are there any overdue tasks?'*\n" \
-                            "- *'List all tasks'* or *'Which tasks are in progress?'*\n" \
-                            "- *'Tell me about Dyson'*"
-        else:
-            # Fallback natural chatbot response
-            response_text = f"I'm here to assist with your Dyson operations. I can see you have **{len(df)}** tasks registered. " \
-                            f"Ask me questions like *'What is the average progress?'*, *'Which tasks are overdue?'*, or *'List all tasks'* to get started!"
-                            
-        return jsonify({"response": response_text})
-        
-    except Exception as e:
-        print(f"Error in chatbot: {e}")
-        return jsonify({"response": "I encountered an error trying to process your request. Please try again."}), 500
+    # Simply return success for simulation
+    return jsonify({"success": True, "message": f"Email successfully sent to {recipient}!"})
 
 if __name__ == '__main__':
-    # Allow local network sharing (0.0.0.0)
     app.run(host='0.0.0.0', port=5002, debug=True)

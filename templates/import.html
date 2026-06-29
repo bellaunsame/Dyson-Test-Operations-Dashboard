@@ -1,0 +1,578 @@
+{% extends "base.html" %}
+
+{% block title %}Navigator & Query Editor — Test Ops Dashboard{% endblock %}
+
+{% block head %}
+<style>
+    /* Power BI Theme Colors & Styles */
+    :root {
+        --pbi-green: #107c41;
+        --pbi-green-hover: #0b592e;
+        --pbi-light-bg: #f3f2f1;
+        --pbi-border: #edebe9;
+        --pbi-formula-bg: #faf9f8;
+        --pbi-text: #323130;
+    }
+
+    .pbi-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 15px;
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 40px);
+    }
+
+    /* File Select Panel (Step 1) */
+    .file-select-panel {
+        display: none;
+        animation: fadeIn 0.3s ease-in-out;
+    }
+    .file-select-panel.active {
+        display: block;
+    }
+
+    /* Navigator Dialog (Step 2) */
+    .navigator-dialog {
+        display: none;
+        background: var(--color-card-bg);
+        border: 1px solid var(--color-border);
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.24);
+        flex-direction: column;
+        height: 80vh;
+        animation: fadeIn 0.3s ease-in-out;
+    }
+    .navigator-dialog.active {
+        display: flex;
+    }
+    .navigator-header {
+        padding: 15px 20px;
+        border-bottom: 1px solid var(--color-border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .navigator-header h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--color-text-main);
+    }
+    .navigator-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+    .navigator-left {
+        width: 300px;
+        border-right: 1px solid var(--color-border);
+        display: flex;
+        flex-direction: column;
+        padding: 15px;
+        overflow-y: auto;
+    }
+    .navigator-search {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 4px;
+        border: 1px solid var(--color-border);
+        background: rgba(255,255,255,0.02);
+        color: var(--color-text-main);
+        font-size: 13px;
+        margin-bottom: 15px;
+        outline: none;
+    }
+    .navigator-tree {
+        flex: 1;
+        overflow-y: auto;
+    }
+    .tree-folder {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--color-text-main);
+        padding: 6px 0;
+    }
+    .tree-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 6px 6px 24px;
+        font-size: 13px;
+        color: var(--color-text);
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background 0.2s;
+    }
+    .tree-item:hover {
+        background: rgba(255,255,255,0.02);
+    }
+    .tree-item.active {
+        background: rgba(0, 120, 212, 0.1);
+        color: var(--color-primary);
+        font-weight: 500;
+    }
+    .navigator-right {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        overflow: hidden;
+    }
+    .navigator-preview-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--color-text-main);
+        margin-bottom: 4px;
+    }
+    .navigator-preview-subtitle {
+        font-size: 12px;
+        color: var(--color-text-muted);
+        margin-bottom: 15px;
+    }
+    .navigator-table-container {
+        flex: 1;
+        overflow: auto;
+        border: 1px solid var(--color-border);
+        border-radius: 6px;
+    }
+    .navigator-footer {
+        padding: 15px 20px;
+        border-top: 1px solid var(--color-border);
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    /* Query Editor Pane (Step 3) */
+    .query-editor-pane {
+        display: none;
+        background: var(--color-card-bg);
+        border: 1px solid var(--color-border);
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.24);
+        flex-direction: column;
+        height: 85vh;
+        animation: fadeIn 0.3s ease-in-out;
+    }
+    .query-editor-pane.active {
+        display: flex;
+    }
+    
+    /* Formula Bar */
+    .formula-bar-container {
+        display: flex;
+        align-items: center;
+        background: rgba(255,255,255,0.02);
+        border-bottom: 1px solid var(--color-border);
+        padding: 6px 15px;
+        gap: 10px;
+    }
+    .formula-fx {
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: 700;
+        color: var(--color-text-muted);
+        font-size: 14px;
+    }
+    .formula-bar {
+        flex: 1;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 13px;
+        background: transparent;
+        border: none;
+        color: var(--color-text-main);
+        outline: none;
+    }
+
+    /* Editor Body */
+    .editor-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+    }
+    .editor-queries-pane {
+        width: 220px;
+        border-right: 1px solid var(--color-border);
+        display: flex;
+        flex-direction: column;
+        padding: 15px;
+    }
+    .editor-queries-title {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        margin-bottom: 10px;
+        letter-spacing: 0.5px;
+    }
+    .query-list-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        font-size: 13px;
+        color: var(--color-text);
+        cursor: pointer;
+        border-radius: 4px;
+        margin-bottom: 4px;
+    }
+    .query-list-item:hover {
+        background: rgba(255,255,255,0.02);
+    }
+    .query-list-item.active {
+        background: rgba(0, 120, 212, 0.1);
+        color: var(--color-primary);
+        font-weight: 500;
+    }
+
+    .editor-grid-pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: rgba(0,0,0,0.1);
+    }
+    
+    /* Grid Table with Column Headers Menu */
+    .editor-grid-container {
+        flex: 1;
+        overflow: auto;
+    }
+    .editor-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+    .editor-table th {
+        background: rgba(255,255,255,0.03);
+        border-bottom: 2px solid var(--color-border);
+        border-right: 1px solid var(--color-border);
+        padding: 8px 12px;
+        font-weight: 600;
+        color: var(--color-text-main);
+        text-align: left;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        min-width: 120px;
+    }
+    .th-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+    }
+    .th-type-icon {
+        font-size: 10px;
+        color: var(--color-primary);
+        background: rgba(0, 120, 212, 0.1);
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-family: monospace;
+    }
+    .th-menu-btn {
+        background: transparent;
+        border: none;
+        color: var(--color-text-muted);
+        cursor: pointer;
+        padding: 2px;
+        border-radius: 3px;
+    }
+    .th-menu-btn:hover {
+        color: var(--color-text-main);
+        background: rgba(255,255,255,0.05);
+    }
+    .editor-table td {
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--color-border);
+        border-right: 1px solid var(--color-border);
+        color: var(--color-text);
+        white-space: nowrap;
+    }
+    .editor-table tr:hover td {
+        background: rgba(255,255,255,0.01);
+    }
+
+    /* Right Settings Pane: Applied Steps */
+    .editor-settings-pane {
+        width: 250px;
+        border-left: 1px solid var(--color-border);
+        display: flex;
+        flex-direction: column;
+        padding: 15px;
+        overflow-y: auto;
+    }
+    .settings-section-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--color-text-main);
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--color-border);
+        padding-bottom: 6px;
+    }
+    .applied-steps-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .step-list-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 10px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--color-border);
+        border-radius: 4px;
+        font-size: 12px;
+        color: var(--color-text-main);
+    }
+    .step-delete-btn {
+        background: transparent;
+        border: none;
+        color: #ef4444;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 2px;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        width: 18px;
+        height: 18px;
+    }
+    .step-delete-btn:hover {
+        background: rgba(239,68,68,0.1);
+    }
+
+    /* Header Ribbon */
+    .editor-ribbon {
+        display: flex;
+        align-items: center;
+        background: rgba(255,255,255,0.01);
+        border-bottom: 1px solid var(--color-border);
+        padding: 10px 20px;
+        gap: 25px;
+    }
+    .ribbon-tab {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--color-primary);
+        border-bottom: 2px solid var(--color-primary);
+        padding-bottom: 4px;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Custom Context Menu */
+    .custom-context-menu {
+        position: absolute;
+        background: var(--color-card-bg);
+        border: 1px solid var(--color-border);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        border-radius: 6px;
+        padding: 4px 0;
+        z-index: 1000;
+        display: none;
+        width: 180px;
+    }
+    .context-menu-item {
+        padding: 8px 15px;
+        font-size: 13px;
+        color: var(--color-text-main);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .context-menu-item:hover {
+        background: rgba(0, 120, 212, 0.1);
+        color: var(--color-primary);
+    }
+    .context-menu-divider {
+        height: 1px;
+        background: var(--color-border);
+        margin: 4px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pbi-container">
+    
+    <!-- STEP 1: SHAREPOINT FILE BROWSER -->
+    <div class="file-select-panel active" id="panel-file-select">
+        <header class="page-header" style="margin-bottom: 25px;">
+            <h1 style="font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+                <i class="fa-solid fa-cloud-arrow-down" style="color: var(--color-primary);"></i> SharePoint Excel Data Extractor
+            </h1>
+            <p style="font-size: 13px; color: var(--color-text-muted); margin-top: 4px;">Browse and select an Excel spreadsheet from your SharePoint document library to load into the Power BI Navigator.</p>
+        </header>
+
+        <div class="grid-card" style="padding: 20px;">
+            <h3 style="margin-top: 0; font-size: 16px; margin-bottom: 15px;"><i class="fa-solid fa-folder-open"></i> SharePoint Document Library</h3>
+            <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 8px;">
+                <table class="file-select-table" style="width:100%;">
+                    <thead>
+                        <tr style="background: rgba(255,255,255,0.02); text-align: left; border-bottom: 2px solid var(--color-border);">
+                            <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted);">File Name</th>
+                            <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted);">Relative Path</th>
+                            <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); width: 80px;">Size</th>
+                            <th style="padding: 12px 15px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); width: 100px;">Modified</th>
+                        </tr>
+                    </thead>
+                    <tbody id="file-list-tbody">
+                        <tr>
+                            <td colspan="4" class="text-center" style="padding: 35px; color: var(--color-text-muted);">
+                                <i class="fa-solid fa-spinner fa-spin"></i> Connecting to SharePoint...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+                <button class="btn btn-primary" id="btn-file-next" disabled>
+                    Open Navigator <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- STEP 2: POWER BI NAVIGATOR -->
+    <div class="navigator-dialog" id="panel-navigator">
+        <div class="navigator-header">
+            <h2>Navigator</h2>
+            <button class="btn btn-secondary" id="btn-nav-close" style="padding: 4px 8px;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        
+        <div class="navigator-body">
+            <!-- Tree View Left -->
+            <div class="navigator-left">
+                <input type="text" class="navigator-search" placeholder="Search sheets..." id="nav-search-input">
+                <div class="navigator-tree">
+                    <div class="tree-folder" id="nav-file-folder">
+                        <i class="fa-solid fa-file-excel" style="color: #107c41;"></i>
+                        <span id="nav-filename-label">Loading...</span>
+                    </div>
+                    <div id="nav-sheets-container" style="display: flex; flex-direction: column;">
+                        <!-- Populated dynamically with checkboxes -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Preview Table Right -->
+            <div class="navigator-right">
+                <div class="navigator-preview-title" id="nav-preview-title">Select an item to preview</div>
+                <div class="navigator-preview-subtitle" id="nav-preview-subtitle">Only first 100 rows are loaded for preview.</div>
+                <div class="navigator-table-container">
+                    <table class="dyson-table" style="width:100%; font-size: 12px;" id="nav-preview-table">
+                        <thead id="nav-table-thead">
+                            <!-- Populated dynamically -->
+                        </thead>
+                        <tbody id="nav-table-tbody">
+                            <!-- Populated dynamically -->
+                            <tr>
+                                <td class="text-center" style="padding: 40px; color: var(--color-text-muted);">
+                                    Select a sheet on the left to display its data preview.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="navigator-footer">
+            <button class="btn btn-secondary" id="btn-nav-cancel">Cancel</button>
+            <button class="btn btn-secondary" id="btn-nav-transform" disabled style="background: transparent; border: 1px solid var(--color-border);">Transform Data</button>
+            <button class="btn btn-primary" id="btn-nav-load" disabled style="background: var(--pbi-green); border-color: var(--pbi-green);">Load</button>
+        </div>
+    </div>
+
+    <!-- STEP 3: POWER QUERY EDITOR -->
+    <div class="query-editor-pane" id="panel-query-editor">
+        <!-- Ribbon top -->
+        <div class="editor-ribbon">
+            <div class="ribbon-tab">Home</div>
+            <div style="font-size: 13px; color: var(--color-text-muted); cursor: not-allowed;">Transform</div>
+            <div style="font-size: 13px; color: var(--color-text-muted); cursor: not-allowed;">Add Column</div>
+        </div>
+
+        <!-- Formula Bar -->
+        <div class="formula-bar-container">
+            <span class="formula-fx">fx</span>
+            <input type="text" class="formula-bar" id="formula-bar-input" readonly value="= Table.TransformColumnTypes(#&quot;Promoted Headers&quot;)">
+        </div>
+
+        <div class="editor-body">
+            <!-- Left: Queries list -->
+            <div class="editor-queries-pane">
+                <div class="editor-queries-title">Queries [Active]</div>
+                <div id="editor-queries-container" style="display: flex; flex-direction: column;">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Center: Grid -->
+            <div class="editor-grid-pane">
+                <div class="editor-grid-container">
+                    <table class="editor-table" id="editor-grid-table">
+                        <thead id="editor-grid-thead">
+                            <!-- Populated dynamically -->
+                        </thead>
+                        <tbody id="editor-grid-tbody">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right: Query Settings & Applied Steps -->
+            <div class="editor-settings-pane">
+                <div class="settings-section-title">Query Properties</div>
+                <div style="margin-bottom: 20px;">
+                    <label style="font-size: 11px; color: var(--color-text-muted); display: block; margin-bottom: 4px;">Name</label>
+                    <input type="text" id="query-name-input" readonly style="width: 100%; padding: 6px; border: 1px solid var(--color-border); background: rgba(255,255,255,0.02); color: var(--color-text-main); border-radius: 4px; font-size: 13px;">
+                </div>
+
+                <div class="settings-section-title">Applied Steps</div>
+                <div class="applied-steps-list" id="applied-steps-container">
+                    <!-- Populated dynamically with undos -->
+                </div>
+            </div>
+        </div>
+
+        <div class="navigator-footer">
+            <button class="btn btn-secondary" id="btn-editor-back">Back</button>
+            <button class="btn btn-primary" id="btn-editor-apply" style="background: var(--pbi-green); border-color: var(--pbi-green);">Close & Apply</button>
+        </div>
+    </div>
+</div>
+
+<!-- Custom Column Context Menu -->
+<div class="custom-context-menu" id="column-context-menu">
+    <div class="context-menu-item" id="menu-remove-col">
+        <i class="fa-solid fa-trash-can" style="color: #ef4444;"></i> Remove Column
+    </div>
+    <div class="context-menu-item" id="menu-remove-other">
+        <i class="fa-solid fa-rectangle-xmark"></i> Remove Other Columns
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" style="color: var(--color-text-muted); cursor: not-allowed;">
+        <i class="fa-solid fa-copy"></i> Copy
+    </div>
+    <div class="context-menu-item" style="color: var(--color-text-muted); cursor: not-allowed;">
+        <i class="fa-solid fa-clone"></i> Duplicate Column
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/import.js') }}"></script>
+{% endblock %}

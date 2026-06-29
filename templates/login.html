@@ -1,47 +1,324 @@
-{% extends 'base.html' %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Dyson Operations Dashboard - Login">
+    <title>Login - Dyson Operations Dashboard</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-{% block title %}Login - Dyson Operations Dashboard{% endblock %}
+        :root {
+            --color-bg:       #0d0d0f;
+            --color-card:     #17171a;
+            --color-border:   #2c2c2e;
+            --color-primary:  #00539C;
+            --color-accent:   #D6257D;
+            --color-text:     #f5f5f7;
+            --color-muted:    #8e8e93;
+            --font-sans: 'Inter', system-ui, sans-serif;
+            --font-display: 'Montserrat', sans-serif;
+        }
 
-{% block content %}
-<div class="login-page">
-    <div class="login-background-glow"></div>
-    <div class="login-card">
-        <div class="login-logo">
-            <i class="fa-solid fa-wind logo-icon"></i>
-            <h2>dyson</h2>
-            <span>OPERATIONS SYSTEM</span>
-        </div>
-        
-        <p class="login-subtitle">Enter your credentials to access the internal dashboard.</p>
-        
-        {% if error %}
-        <div class="alert-danger">
-            <i class="fa-solid fa-triangle-exclamation"></i>
-            <span>{{ error }}</span>
-        </div>
-        {% endif %}
-        
-        <form action="{{ url_for('login') }}" method="POST" class="login-form">
-            <div class="form-group">
-                <label for="username"><i class="fa-solid fa-user"></i> Username</label>
-                <input type="text" id="username" name="username" placeholder="e.g. admin" required autocomplete="off">
+        body {
+            font-family: var(--font-sans);
+            background: var(--color-bg);
+            color: var(--color-text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Animated background blobs */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -200px;
+            left: -200px;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,83,156,0.18) 0%, transparent 70%);
+            animation: blobDrift 12s ease-in-out infinite alternate;
+            pointer-events: none;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -200px;
+            right: -100px;
+            width: 500px;
+            height: 500px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(214,37,125,0.14) 0%, transparent 70%);
+            animation: blobDrift 16s ease-in-out infinite alternate-reverse;
+            pointer-events: none;
+        }
+
+        @keyframes blobDrift {
+            from { transform: translate(0, 0) scale(1); }
+            to   { transform: translate(60px, 40px) scale(1.1); }
+        }
+
+        /* Grid pattern overlay */
+        .grid-bg {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Login card */
+        .login-wrap {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 420px;
+            padding: 24px;
+        }
+
+        .login-card {
+            background: var(--color-card);
+            border: 1px solid var(--color-border);
+            border-radius: 20px;
+            padding: 40px 36px;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03);
+            animation: cardIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(30px) scale(0.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Logo area */
+        .login-logo {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 28px;
+        }
+
+        .login-logo .logo-icon {
+            font-size: 40px;
+            color: var(--color-primary);
+            filter: drop-shadow(0 0 16px rgba(0,83,156,0.5));
+            animation: iconPulse 3s ease-in-out infinite;
+        }
+
+        @keyframes iconPulse {
+            0%, 100% { filter: drop-shadow(0 0 12px rgba(0,83,156,0.4)); }
+            50%       { filter: drop-shadow(0 0 24px rgba(0,83,156,0.7)); }
+        }
+
+        .login-logo h2 {
+            font-family: var(--font-display);
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: var(--color-text);
+        }
+
+        .login-logo span {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: var(--color-muted);
+        }
+
+        .login-subtitle {
+            font-size: 13px;
+            color: var(--color-muted);
+            text-align: center;
+            margin-bottom: 28px;
+            line-height: 1.5;
+        }
+
+        /* Error alert */
+        .alert-danger {
+            background: rgba(231, 76, 60, 0.1);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+            border-radius: 8px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #ff6b6b;
+            margin-bottom: 20px;
+        }
+
+        /* Form */
+        .login-form { display: flex; flex-direction: column; gap: 16px; }
+
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+
+        .form-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--color-muted);
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 11px 14px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--color-border);
+            border-radius: 10px;
+            color: var(--color-text);
+            font-size: 14px;
+            font-family: var(--font-sans);
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        }
+
+        .form-group input:focus {
+            border-color: var(--color-primary);
+            box-shadow: 0 0 0 3px rgba(0,83,156,0.18);
+            background: rgba(0,83,156,0.05);
+        }
+
+        .form-group input::placeholder { color: #555; }
+
+        /* Submit button */
+        .btn-login {
+            margin-top: 8px;
+            width: 100%;
+            padding: 13px;
+            background: linear-gradient(135deg, var(--color-primary), #0066bb);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: var(--font-sans);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+            box-shadow: 0 4px 20px rgba(0,83,156,0.35);
+        }
+
+        .btn-login:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 28px rgba(0,83,156,0.45);
+            filter: brightness(1.08);
+        }
+
+        .btn-login:active { transform: translateY(0); }
+
+        /* Divider */
+        .login-divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 20px 0 16px;
+            color: var(--color-muted);
+            font-size: 11px;
+        }
+        .login-divider::before,
+        .login-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--color-border);
+        }
+
+        /* Footer */
+        .login-footer {
+            margin-top: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--color-muted);
+        }
+
+        .login-footer p {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .demo-creds {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        code {
+            color: #70b3f5;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <div class="login-wrap">
+        <div class="login-card">
+            <div class="login-logo">
+                <i class="fa-solid fa-wind logo-icon"></i>
+                <h2>dyson</h2>
+                <span>Operations System</span>
             </div>
-            
-            <div class="form-group">
-                <label for="password"><i class="fa-solid fa-lock"></i> Password</label>
-                <input type="password" id="password" name="password" placeholder="••••••••" required>
+
+            <p class="login-subtitle">Enter your credentials to access the internal dashboard.</p>
+
+            {% if error %}
+            <div class="alert-danger">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <span>{{ error }}</span>
             </div>
-            
-            <button type="submit" class="btn btn-primary btn-block">
-                <span>Access Dashboard</span>
-                <i class="fa-solid fa-arrow-right"></i>
-            </button>
-        </form>
-        
-        <div class="login-footer">
-            <p><i class="fa-solid fa-shield-halved"></i> Authorized Personnel Only</p>
-            <p class="demo-creds">Demo: <code>admin</code> / <code>dyson2026</code></p>
+            {% endif %}
+
+            <form action="{{ url_for('login') }}" method="POST" class="login-form">
+                <div class="form-group">
+                    <label for="username"><i class="fa-solid fa-user"></i> Username</label>
+                    <input type="text" id="username" name="username" placeholder="e.g. admin" required autocomplete="off">
+                </div>
+
+                <div class="form-group">
+                    <label for="password"><i class="fa-solid fa-lock"></i> Password</label>
+                    <input type="password" id="password" name="password" placeholder="••••••••" required>
+                </div>
+
+                <button type="submit" class="btn-login">
+                    <span>Access Dashboard</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </form>
+
+            <div class="login-footer">
+                <p><i class="fa-solid fa-shield-halved"></i> Authorized Personnel Only</p>
+                <div class="demo-creds">Demo: <code>admin</code> / <code>dyson2026</code></div>
+            </div>
         </div>
     </div>
-</div>
-{% endblock %}
+</body>
+</html>

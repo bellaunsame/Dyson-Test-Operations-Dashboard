@@ -13,16 +13,284 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* SharePoint Sync Indicator */
+        .sharepoint-sync-item {
+            position: relative;
+        }
+        .sync-status-badge {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6b7280;
+            border: 1.5px solid var(--color-sidebar-bg, #1c1c1e);
+            transition: background 0.3s ease;
+        }
+        .sync-status-badge.synced {
+            background: #22c55e;
+            box-shadow: 0 0 6px rgba(34,197,94,0.5);
+        }
+        .sync-status-badge.syncing {
+            background: #f59e0b;
+            animation: pulse-badge 0.8s ease-in-out infinite alternate;
+        }
+        .sync-status-badge.error {
+            background: #ef4444;
+        }
+        @keyframes pulse-badge {
+            from { opacity: 1; box-shadow: 0 0 4px rgba(245,158,11,0.4); }
+            to   { opacity: 0.5; box-shadow: 0 0 10px rgba(245,158,11,0.8); }
+        }
+        .sync-last-time {
+            font-size: 10px;
+            color: var(--color-text-muted);
+            padding: 0 12px 8px 44px;
+            display: none;
+        }
+        .sync-last-time.visible {
+            display: block;
+        }
+
+        /* PDF Export button fix */
+        .btn-pdf-export {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .btn-pdf-export.loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+    </style>
     {% block head %}{% endblock %}
 </head>
 <body>
     <div class="app-container">
-        {% block content %}{% endblock %}
+        <div class="dashboard-layout">
+            <!-- SIDEBAR NAVIGATION -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <i class="fa-solid fa-wind logo-icon"></i>
+                    <div class="logo-text">
+                        <h2>dyson</h2>
+                        <span>OPERATIONS</span>
+                    </div>
+                </div>
+
+                <nav class="sidebar-menu">
+                    <a href="/dashboard" class="menu-item {% if active_page == 'dashboard' %}active{% endif %}">
+                        <i class="fa-solid fa-chart-line"></i>
+                        <span>Operations Room</span>
+                    </a>
+                    <a href="/tables" class="menu-item {% if active_page == 'tables' %}active{% endif %}">
+                        <i class="fa-solid fa-table"></i>
+                        <span>Project Tables</span>
+                    </a>
+                    <!-- Sharepoint Excel Data Extractor -->
+                    <a href="/import" class="menu-item {% if active_page == 'import' %}active{% endif %}">
+                        <i class="fa-solid fa-cloud-arrow-down"></i>
+                        <span>Sharepoint Extractor</span>
+                    </a>
+                    <!-- SharePoint Sync with live indicator -->
+                    <a href="#" class="menu-item sharepoint-sync-item" id="btn-sync-sharepoint" title="Sync data from SharePoint">
+                        <i class="fa-solid fa-arrows-rotate" id="sync-icon"></i>
+                        <span>SharePoint Sync</span>
+                        <span class="sync-status-badge" id="sync-status-badge"></span>
+                    </a>
+                </nav>
+
+                <!-- Sync timestamp -->
+                <div class="sync-last-time" id="sync-last-time">Never synced</div>
+
+                <div class="sidebar-divider"></div>
+
+                <!-- QUICK ACTIONS -->
+                <div class="quick-actions">
+                    <h3>QUICK ACTIONS</h3>
+                    <a href="/generate-report" class="btn btn-secondary btn-action" id="btn-pdf-download" download="Daily_Operations_Report.pdf">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span>Export PDF Report</span>
+                    </a>
+                    <button class="btn btn-accent btn-action" id="btn-email-modal-trigger">
+                        <i class="fa-solid fa-envelope"></i>
+                        <span>Email Daily Report</span>
+                    </button>
+                </div>
+
+                <!-- USER PROFILE -->
+                <div class="sidebar-footer">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <i class="fa-solid fa-circle-user"></i>
+                        </div>
+                        <div class="user-details">
+                            <p class="username">{{ username or 'Administrator' }}</p>
+                            <p class="role">Operations Lead</p>
+                        </div>
+                    </div>
+                    <a href="/logout" class="logout-btn" title="Logout"><i class="fa-solid fa-right-from-bracket"></i></a>
+                </div>
+            </aside>
+
+            <!-- MAIN CONTENT AREA -->
+            <main class="main-content">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
     </div>
+
+    <!-- GLOBAL MODALS & TOASTS -->
+    
+    <!-- EMAIL DISPATCH MODAL -->
+    <div class="modal-backdrop" id="email-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-envelope"></i> Email Daily PDF Report</h2>
+                <button class="modal-close-btn" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="email-form">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="email-to">Recipient Email</label>
+                        <input type="email" id="email-to" value="operations-manager@dyson.com" placeholder="Enter recipient email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email-subject">Subject</label>
+                        <input type="text" id="email-subject" value="Dyson Operations Daily Report - Today" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email-body">Email Body</label>
+                        <textarea id="email-body" rows="6" required>Dear Team,
+
+Please find attached the Daily Test Operations Project Status Report containing the latest project tasks, timeline progression, and completion rates.
+
+This email was auto-generated by the Operations Dashboard.</textarea>
+                    </div>
+                    <div class="attachment-preview">
+                        <i class="fa-solid fa-file-pdf pdf-icon"></i>
+                        <div class="attachment-details">
+                            <span>Daily_Operations_Report.pdf</span>
+                            <small>Auto-compiled operations report</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="btn-cancel-email">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-paper-plane"></i> Send Email</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- SMTP LOG MODAL -->
+    <div class="modal-backdrop" id="email-log-modal">
+        <div class="modal-card log-card">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-bug"></i> Simulated SMTP Log Output</h2>
+                <button class="modal-close-btn" id="btn-close-log-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="log-desc">Since SMTP is not configured in `.env`, the email was simulated. The details below were output to the server console:</p>
+                <pre class="log-pre" id="email-log-content"></pre>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-primary" id="btn-close-log-ok">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLOATING TOAST NOTIFICATIONS -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- FLOATING CHAT BUBBLE BUTTON -->
+    <button class="chatbot-bubble-btn" id="btn-chatbot-bubble" title="Open Dyson AI Assistant">
+        <i class="fa-solid fa-robot"></i>
+    </button>
+
+    <!-- RIGHT CHATBOT PANEL -->
+    <aside class="chatbot-panel minimized" id="chatbot-panel">
+        <div class="chatbot-header">
+            <div class="chatbot-title">
+                <div class="bot-avatar">
+                    <i class="fa-solid fa-robot"></i>
+                </div>
+                <div>
+                    <h3>Dyson AI Assistant</h3>
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span class="status-dot"></span>
+                        <span style="font-size: 10px; color: var(--color-text-muted);">Online</span>
+                    </div>
+                </div>
+            </div>
+            <button class="chatbot-minimize-btn" id="btn-minimize-chat" title="Minimize Chat">
+                <i class="fa-solid fa-minus"></i>
+            </button>
+        </div>
+        
+        <div class="chatbot-messages" id="chat-messages">
+            <div class="chat-message bot">
+                <div class="message-bubble">
+                    <p>Hello! I am your Dyson Operations AI assistant. I can answer questions about test methods, analyze project milestones, and <strong>generate PDF reports</strong> for you. Try asking:<br>
+                    • "Generate a report for project 893"<br>
+                    • "How many test records does project 990 have?"<br>
+                    • "Summarize all active projects"</p>
+                </div>
+            </div>
+        </div>
+        
+        <form class="chatbot-input-area" id="chat-form">
+            <input type="text" id="chat-input" placeholder="Ask about test operations..." autocomplete="off">
+            <button type="submit" class="chatbot-send-btn" title="Send Message">
+                <i class="fa-solid fa-paper-plane"></i>
+            </button>
+        </form>
+    </aside>
 
     <!-- Chart.js and Date Adapter -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    
+    <!-- Global Script -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    
+    <!-- Helper Toast Script for Non-Dashboard Pages -->
+    <script>
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+        
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icons = {
+            success: '<i class="fa-solid fa-circle-check"></i>',
+            error: '<i class="fa-solid fa-circle-xmark"></i>',
+            info: '<i class="fa-solid fa-circle-info"></i>',
+            warning: '<i class="fa-solid fa-triangle-exclamation"></i>'
+        };
+        
+        toast.innerHTML = `
+            <div class="toast-icon">${icons[type] || icons.info}</div>
+            <div class="toast-message">${message}</div>
+        `;
+        
+        container.appendChild(toast);
+        
+        // Trigger reflow for transition
+        toast.offsetHeight;
+        toast.classList.add('show');
+        
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
+    }
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,8 +1,7 @@
 import os
 import unittest
-import pandas as pd
 import datetime
-from app import app, db, ExcelDataStore, Task, generate_pdf_report, UPLOAD_FOLDER, EXCEL_PATH
+from app import app, db, ExcelDataStore, Project, TestRecord, ExcelMapping, generate_pdf_report, UPLOAD_FOLDER
 
 class TestDysonDashboardBackend(unittest.TestCase):
     
@@ -12,123 +11,173 @@ class TestDysonDashboardBackend(unittest.TestCase):
         app.config['TESTING'] = True
         self.app = app.test_client()
         
-        # Backup existing Excel if it exists to avoid triggering migration in tests
-        self.backup_path = EXCEL_PATH + ".bak"
-        if os.path.exists(EXCEL_PATH):
-            if os.path.exists(self.backup_path):
-                os.remove(self.backup_path)
-            os.rename(EXCEL_PATH, self.backup_path)
-            
         # Push application context
         self.app_context = app.app_context()
         self.app_context.push()
         
-        # Create tables and seed data
+        # Create tables and initialize
         db.create_all()
         ExcelDataStore.initialize_db()
+        
+        # Explicitly seed test-specific data so tests are independent of production seeding
+        proj = Project(name="893", description="Test Project", status="Active", created_at="06/28/2026")
+        db.session.add(proj)
+        
+        rec = TestRecord(
+            project_name="893",
+            category="Device: Hair Dryer",
+            test_method="Stress Imaging",
+            test_number="TM-035128",
+            start_date="2026-06-28",
+            proto_weeks=3,
+            proto_days=2,
+            proto_qty=15,
+            comments=""
+        )
+        db.session.add(rec)
+        db.session.commit()
 
     def tearDown(self):
         # Clean up database and pop context
         db.session.remove()
         db.drop_all()
         self.app_context.pop()
+ 
+    def test_database_initialization(self):
+        """Test that the database is correctly initialized and contains our test seed data."""
+        projects = Project.query.all()
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0].name, "893")
         
-        # Restore Excel backup
-        if os.path.exists(self.backup_path):
-            if os.path.exists(EXCEL_PATH):
-                os.remove(EXCEL_PATH)
-            os.rename(self.backup_path, EXCEL_PATH)
-
-    def test_excel_initialization(self):
-        """Test that the database is correctly initialized with sample tasks."""
-        tasks = ExcelDataStore.get_tasks()
-        self.assertEqual(len(tasks), 6)  # 4 active tasks + 2 rejected tasks
-        self.assertEqual(tasks[0]["Task ID"], "TSK-001")
-        self.assertEqual(tasks[0]["Task Name"], "V15 Cyclone Engine Optimization")
-        self.assertEqual(tasks[0]["Phase"], "Proto")
-
-    def test_add_and_get_task(self):
-        """Test adding a task and calculating the end date and status."""
-        new_task = {
-            "Task Name": "Airstrait Speed Run Testing",
-            "Start Date": "2026-08-10",
-            "Duration": 5,
-            "Progress": 50,
-            "Owner": "Engineering Team",
-            "Phase": "EVT",
-            "Status": "In Progress"
-        }
+        records = TestRecord.query.all()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].project_name, "893")
+        self.assertEqual(records[0].category, "Device: Hair Dryer")
+        self.assertEqual(records[0].test_method, "Stress Imaging")
+        self.assertEqual(records[0].proto_qty, 15)
+ 
+    def test_add_and_get_project(self):
+        """Test adding a new project."""
+        new_proj = Project(name="TestProj", description="Test desc", status="Active", created_at="06/29/2026")
+        db.session.add(new_proj)
+        db.session.commit()
         
-        saved = ExcelDataStore.save_task(new_task)
+        proj = Project.query.filter_by(name="TestProj").first()
+        self.assertIsNotNone(proj)
+        self.assertEqual(proj.description, "Test desc")
+ 
+    def test_add_and_get_record(self):
+        """Test adding a test record and verifying its fields."""
+        rec = TestRecord(
+            project_name="893",
+            category="Device: Fan",
+            test_method="Airflow Speed",
+            test_number="TM-999",
+            start_date="2026-07-15",
+            proto_weeks=1,
+            proto_days=2,
+            proto_qty=10,
+            comments="Loud motor noise"
+        )
+        db.session.add(rec)
+        db.session.commit()
         
-        # Verify End Date calculation: 2026-08-10 + 5 days = 2026-08-15
-        self.assertEqual(saved["End Date"], "2026-08-15")
-        self.assertEqual(saved["Status"], "In Progress")
-        self.assertEqual(saved["Phase"], "EVT")
-        self.assertTrue(saved["Task ID"].startswith("TSK-"))
+        saved = TestRecord.query.filter_by(test_number="TM-999").first()
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.category, "Device: Fan")
+        self.assertEqual(saved.proto_qty, 10)
+        self.assertEqual(saved.comments, "Loud motor noise")
+ 
+    def test_update_record(self):
+        """Test updating an existing test record."""
+        rec = TestRecord.query.filter_by(test_number="TM-035128").first()
+        self.assertIsNotNone(rec)
         
-        # Verify it was written to database
-        tasks = ExcelDataStore.get_tasks()
-        self.assertEqual(len(tasks), 7)
-        task_names = [t["Task Name"] for t in tasks]
-        self.assertIn("Airstrait Speed Run Testing", task_names)
-
-    def test_update_task(self):
-        """Test updating an existing task."""
-        task_data = {
-            "Task ID": "TSK-001",
-            "Task Name": "V15 Cyclone Engine Optimization - Updated",
-            "Start Date": "2026-07-01",
-            "Duration": 18,  # Changed from 15 to 18
-            "Progress": 90,  # Changed from 80 to 90
-            "Owner": "Engineering Team",
-            "Phase": "Proto",
-            "Status": "In Progress"
-        }
+        # Update fields
+        rec.proto_qty = 20
+        rec.comments = "Updated comments"
+        db.session.commit()
         
-        updated = ExcelDataStore.save_task(task_data)
+        updated = TestRecord.query.filter_by(test_number="TM-035128").first()
+        self.assertEqual(updated.proto_qty, 20)
+        self.assertEqual(updated.comments, "Updated comments")
+ 
+    def test_delete_record(self):
+        """Test deleting a record from the database."""
+        rec = TestRecord.query.filter_by(test_number="TM-035128").first()
+        self.assertIsNotNone(rec)
         
-        # Verify changes
-        self.assertEqual(updated["Task Name"], "V15 Cyclone Engine Optimization - Updated")
-        self.assertEqual(updated["Duration"], 18)
-        self.assertEqual(updated["Progress"], 90)
-        self.assertEqual(updated["End Date"], "2026-07-19")
-        self.assertEqual(updated["Status"], "In Progress")
-        self.assertEqual(updated["Phase"], "Proto")
+        db.session.delete(rec)
+        db.session.commit()
         
-        # Verify it is updated in database
-        tasks = ExcelDataStore.get_tasks()
-        self.assertEqual(len(tasks), 6)
-        task = [t for t in tasks if t["Task ID"] == "TSK-001"][0]
-        self.assertEqual(task["Task Name"], "V15 Cyclone Engine Optimization - Updated")
-
-    def test_delete_task(self):
-        """Test deleting a task from the database."""
-        tasks_before = ExcelDataStore.get_tasks()
-        self.assertEqual(len(tasks_before), 6)
-        
-        # Delete TSK-003
-        success = ExcelDataStore.delete_task("TSK-003")
-        self.assertTrue(success)
-        
-        tasks_after = ExcelDataStore.get_tasks()
-        self.assertEqual(len(tasks_after), 5)
-        task_ids = [t["Task ID"] for t in tasks_after]
-        self.assertNotIn("TSK-003", task_ids)
-
+        deleted = TestRecord.query.filter_by(test_number="TM-035128").first()
+        self.assertIsNone(deleted)
+ 
     def test_pdf_generation(self):
-        """Test that a PDF report is successfully generated and is non-empty."""
-        pdf_test_path = os.path.join(UPLOAD_FOLDER, "Test_Report.pdf")
+        """Test that a PDF report is successfully generated for a project."""
+        pdf_test_path = os.path.join(UPLOAD_FOLDER, "Test_Project_Report.pdf")
         if os.path.exists(pdf_test_path):
             os.remove(pdf_test_path)
             
         try:
-            generate_pdf_report(pdf_test_path)
+            generate_pdf_report(pdf_test_path, project_name="893")
             self.assertTrue(os.path.exists(pdf_test_path))
             self.assertGreater(os.path.getsize(pdf_test_path), 0)
         finally:
             if os.path.exists(pdf_test_path):
                 os.remove(pdf_test_path)
+ 
+    def test_excel_mapping_model(self):
+        """Test that the ExcelMapping model can save and retrieve mapping configurations."""
+        mapping = ExcelMapping(
+            project_name="893",
+            file_path="/Shared Documents/Dyson_Milestones_893.xlsx",
+            sheet_name="Sheet1",
+            mapping_json='{"Category": "Test Category", "Test Method": "Method Name"}'
+        )
+        db.session.add(mapping)
+        db.session.commit()
+ 
+        saved = ExcelMapping.query.filter_by(project_name="893").first()
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.sheet_name, "Sheet1")
+        self.assertEqual(saved.to_dict()["mapping"]["Category"], "Test Category")
+ 
+    def test_import_excel_endpoint(self):
+        """Test that the global SharePoint load-transformed endpoint imports sheets as projects successfully."""
+        # Set up logged_in session
+        with self.app.session_transaction() as sess:
+            sess['logged_in'] = True
+            sess['username'] = 'admin'
+ 
+        payload = {
+            "file_path": "/Shared Documents/Dyson_Milestones_893.xlsx",
+            "selected_sheets": ["Sheet1"],
+            "removed_columns": {
+                "Sheet1": ["Rejections_Notes"]
+            }
+        }
+        
+        # Call the global load-transformed endpoint
+        response = self.app.post(
+            '/api/sharepoint/load-transformed',
+            json=payload,
+            follow_redirects=True
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIsNotNone(data)
+        self.assertTrue(data["success"])
+        self.assertGreater(data["count"], 0)
+        
+        # Verify that records were saved under project "Sheet1" (created from mock Excel sheet name)
+        records = TestRecord.query.filter_by(project_name="Sheet1").all()
+        self.assertGreater(len(records), 0)
+        self.assertEqual(records[0].category, "Device: Hair Dryer")
+        # In this test, we removed 'Rejections_Notes' which was mapped to 'comments'.
+        # Let's verify that the comment is empty because it was removed from the query!
+        self.assertEqual(records[0].comments, "")
 
 if __name__ == "__main__":
     unittest.main()
