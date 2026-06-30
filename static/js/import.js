@@ -21,6 +21,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const navFilenameLabel = document.getElementById('nav-filename-label');
     const navSheetsContainer = document.getElementById('nav-sheets-container');
     const navSearchInput   = document.getElementById('nav-search-input');
+    const btnNavSelectAll  = document.getElementById('btn-nav-select-all');
+    const btnNavClearAll   = document.getElementById('btn-nav-clear-all');
     const navPreviewTitle  = document.getElementById('nav-preview-title');
     const navTableThead    = document.getElementById('nav-table-thead');
     const navTableTbody    = document.getElementById('nav-table-tbody');
@@ -67,6 +69,10 @@ document.addEventListener('DOMContentLoaded', () => {
         navSearchInput.addEventListener('input', (e) => {
             filterNavigatorTree(e.target.value.toLowerCase());
         });
+
+        // Navigator Select/Clear buttons
+        btnNavSelectAll.addEventListener('click', selectAllSheets);
+        btnNavClearAll.addEventListener('click', clearAllSheets);
 
         // Query Editor Buttons
         btnEditorBack.addEventListener('click', () => {
@@ -373,6 +379,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const hasSelection = selectedSheets.size > 0;
         btnNavLoad.disabled = !hasSelection;
         btnNavTransform.disabled = !hasSelection;
+    }
+
+    function setAllSheetSelection(selectAll) {
+        if (selectAll) {
+            Object.keys(sheetsData).forEach(sheetName => selectedSheets.add(sheetName));
+        } else {
+            selectedSheets.clear();
+        }
+
+        document.querySelectorAll('.sheet-checkbox').forEach(chk => {
+            chk.checked = selectAll;
+        });
+
+        updateNavigatorButtons();
+    }
+
+    function selectAllSheets() {
+        setAllSheetSelection(true);
+    }
+
+    function clearAllSheets() {
+        setAllSheetSelection(false);
     }
 
     // ── Render Preview in Navigator ──
