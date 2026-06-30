@@ -77,36 +77,36 @@
     <div class="grid-card" style="padding: 0; overflow: hidden; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-card-bg);">
         <div class="table-responsive" style="overflow-x: auto;">
             <table class="ops-table" id="project-detail-table" style="width: 100%; border-collapse: collapse; min-width: 1200px; font-size: 13px; text-align: left;">
-                <thead>
-                    <!-- First Header Row -->
-                    <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--color-border);">
-                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border); width: 40px;">#</th>
-                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Category</th>
-                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Test Method</th>
-                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Test Number</th>
-                        <!-- Phase Headers -->
-                        <th colspan="3" style="padding: 8px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(142,68,173,0.12);">Proto</th>
-                        <th colspan="3" style="padding: 8px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(41,128,185,0.12);">DVT</th>
-                        <th colspan="3" style="padding: 8px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(39,174,96,0.12);">EVT</th>
-                        <th colspan="3" style="padding: 8px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(211,84,0,0.12);">PVT</th>
-                        <th rowspan="2" style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(231,76,60,0.08); min-width: 70px;">Defect<br>Qty</th>
-                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Rejection Comment/s</th>
-                        <th rowspan="2" style="padding: 12px 15px; font-weight: 700; width: 90px; text-align: center;">Action</th>
-                    </tr>
-                    <!-- Sub-headers -->
-                    <tr style="background: rgba(255,255,255,0.01); border-bottom: 2px solid var(--color-border);">
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Wk</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Day</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">Qty</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Wk</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Day</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">Qty</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Wk</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Day</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">Qty</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Wk</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border);">Day</th>
-                        <th style="padding: 8px 10px; font-size: 11px; font-weight: 600; text-align: center; border-right: 1px solid var(--color-border); background: rgba(255,255,255,0.02);">Qty</th>
+                    <!-- Flat Header Row for New Format -->
+                    <tr style="background: rgba(255,255,255,0.02); border-bottom: 2px solid var(--color-border);">
+                        <th style="padding: 12px 10px; font-weight: 700; border-right: 1px solid var(--color-border); width: 40px; text-align: center;">#</th>
+                        <th style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Category</th>
+                        <th style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Test Method</th>
+                        <th style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Test Number</th>
+                        
+                        <!-- Proto1, Week1, Day1 -->
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(142,68,173,0.08);">Proto1</th>
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(142,68,173,0.08);">Week1</th>
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(142,68,173,0.08);">Day1</th>
+                        
+                        <!-- DVT1, Week2, Day3 -->
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(41,128,185,0.08);">DVT1</th>
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(41,128,185,0.08);">Week2</th>
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(41,128,185,0.08);">Day3</th>
+                        
+                        <!-- EVT1, Week4, Day5 -->
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(39,174,96,0.08);">EVT1</th>
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(39,174,96,0.08);">Week4</th>
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(39,174,96,0.08);">Day5</th>
+                        
+                        <!-- PVT1, Week6, Day7 -->
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(211,84,0,0.08);">PVT1</th>
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(211,84,0,0.08);">Week6</th>
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(211,84,0,0.08);">Day7</th>
+                        
+                        <th style="padding: 12px 10px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border); background: rgba(231,76,60,0.08); min-width: 70px;">Defect Qty</th>
+                        <th style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Rejection Comment/s</th>
+                        <th style="padding: 12px 15px; font-weight: 700; width: 90px; text-align: center;">Action</th>
                     </tr>
                 </thead>
                 <tbody>

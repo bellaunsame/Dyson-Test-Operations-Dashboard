@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(res => res.json())
             .then(data => {
                 loadingState.style.display = 'none';
-                rawRecords = data.rows || [];
+                rawRecords = Array.isArray(data) ? data : (data.rows || []);
 
                 if (rawRecords.length === 0) {
                     resetToEmptyState("No Data Available", `Project ${projectName} has no test method records.`);
@@ -173,10 +173,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // AI auto-calculation and formatting of Gantt data
+    let renderTimeout = null;
     function renderGanttChart() {
-        if (ganttChartInstance) {
-            ganttChartInstance.destroy();
-            ganttChartInstance = null;
+        if (renderTimeout) {
+            clearTimeout(renderTimeout);
         }
 
         // 1. Filter records by Category
@@ -190,6 +190,10 @@ document.addEventListener('DOMContentLoaded', () => {
             emptyState.style.display = 'block';
             emptyState.querySelector('h3').textContent = "No Matches";
             emptyState.querySelector('p').textContent = `No records match the category: "${currentCategory}".`;
+            if (ganttChartInstance) {
+                ganttChartInstance.destroy();
+                ganttChartInstance = null;
+            }
             return;
         } else {
             canvasWrap.style.display = 'block';
@@ -262,10 +266,10 @@ document.addEventListener('DOMContentLoaded', () => {
             statSpan.textContent = '—';
         }
 
-        // Adjust Canvas height dynamically based on number of bars
+        // Adjust Canvas parent container height dynamically based on number of bars
         const uniqueYLabels = Array.from(new Set(chartData.map(d => d.y)));
         const dynamicHeight = Math.max(350, uniqueYLabels.length * 65 + 100);
-        document.getElementById('ganttChart').style.height = `${dynamicHeight}px`;
+        canvasWrap.style.height = `${dynamicHeight}px`;
 
         // 4. Configure Chart.js Options & Scale
         let timeUnit = 'week';
@@ -296,111 +300,118 @@ document.addEventListener('DOMContentLoaded', () => {
             };
         });
 
-        // 5. Create Chart Instance
-        ganttChartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                datasets: [{
-                    label: 'Timeline',
-                    data: datasetData,
-                    backgroundColor: (context) => {
-                        const raw = context.raw;
-                        return raw ? raw.color : '#999999';
-                    },
-                    borderRadius: 4,
-                    borderSkipped: false,
-                    barPercentage: 0.7,
-                    categoryPercentage: 0.8
-                }]
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            title: (context) => {
-                                return context[0].raw.y;
-                            },
-                            label: (context) => {
-                                const raw = context.raw;
-                                const startStr = raw.x[0].toISOString().split('T')[0];
-                                const endStr = raw.x[1].toISOString().split('T')[0];
-                                let lines = [
-                                    `Phase: ${raw.phase}`,
-                                    `Duration: ${startStr} to ${endStr}`,
-                                    `Defects: ${raw.defects}`
-                                ];
-                                if (raw.comment) {
-                                    lines.push(`Note: ${raw.comment}`);
+        // Delay Chart.js instantiation slightly to allow browser layout/reflow
+        renderTimeout = setTimeout(() => {
+            if (ganttChartInstance) {
+                ganttChartInstance.destroy();
+            }
+
+            // 5. Create Chart Instance
+            ganttChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    datasets: [{
+                        label: 'Timeline',
+                        data: datasetData,
+                        backgroundColor: (context) => {
+                            const raw = context.raw;
+                            return raw ? raw.color : '#999999';
+                        },
+                        borderRadius: 4,
+                        borderSkipped: false,
+                        barPercentage: 0.7,
+                        categoryPercentage: 0.8
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: (context) => {
+                                    return context[0].raw.y;
+                                },
+                                label: (context) => {
+                                    const raw = context.raw;
+                                    const startStr = raw.x[0].toISOString().split('T')[0];
+                                    const endStr = raw.x[1].toISOString().split('T')[0];
+                                    let lines = [
+                                        `Phase: ${raw.phase}`,
+                                        `Duration: ${startStr} to ${endStr}`,
+                                        `Defects: ${raw.defects}`
+                                    ];
+                                    if (raw.comment) {
+                                        lines.push(`Note: ${raw.comment}`);
+                                    }
+                                    return lines;
                                 }
-                                return lines;
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: timeUnit,
+                                stepSize: stepSize,
+                                displayFormats: {
+                                    day: 'MMM dd',
+                                    week: "'Wk' w (MMM dd)",
+                                    month: 'MMM yyyy',
+                                    year: 'yyyy'
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.08)'
+                            },
+                            ticks: {
+                                color: '#a0a0a0',
+                                font: { size: 11 }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Project Timeline Progression',
+                                color: '#808080',
+                                font: { size: 12, weight: 'bold' }
+                            }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: {
+                                color: '#e0e0e0',
+                                font: { size: 11, weight: '600' }
                             }
                         }
                     }
                 },
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: {
-                            unit: timeUnit,
-                            stepSize: stepSize,
-                            displayFormats: {
-                                day: 'MMM dd',
-                                week: "'Wk' w (MMM dd)",
-                                month: 'MMM yyyy',
-                                year: 'yyyy'
-                            }
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.08)'
-                        },
-                        ticks: {
-                            color: '#a0a0a0',
-                            font: { size: 11 }
-                        },
-                        title: {
-                            display: true,
-                            text: 'Project Timeline Progression',
-                            color: '#808080',
-                            font: { size: 12, weight: 'bold' }
-                        }
-                    },
-                    y: {
-                        grid: { display: false },
-                        ticks: {
-                            color: '#e0e0e0',
-                            font: { size: 11, weight: '600' }
-                        }
-                    }
-                }
-            },
-            plugins: [{
-                id: 'todayLine',
-                afterDatasetsDraw(chart) {
-                    const { ctx, scales: { x, y } } = chart;
-                    const today = new Date();
-                    if (today >= x.min && today <= x.max) {
-                        const todayX = x.getPixelForValue(today);
-                        ctx.save();
-                        ctx.beginPath();
-                        ctx.strokeStyle = '#ff3b30';
-                        ctx.lineWidth = 2;
-                        ctx.setLineDash([5, 5]);
-                        ctx.moveTo(todayX, y.top);
-                        ctx.lineTo(todayX, y.bottom);
-                        ctx.stroke();
+                plugins: [{
+                    id: 'todayLine',
+                    afterDatasetsDraw(chart) {
+                        const { ctx, scales: { x, y } } = chart;
+                        const today = new Date();
+                        if (today >= x.min && today <= x.max) {
+                            const todayX = x.getPixelForValue(today);
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.strokeStyle = '#ff3b30';
+                            ctx.lineWidth = 2;
+                            ctx.setLineDash([5, 5]);
+                            ctx.moveTo(todayX, y.top);
+                            ctx.lineTo(todayX, y.bottom);
+                            ctx.stroke();
 
-                        // Add "Today" label
-                        ctx.fillStyle = '#ff3b30';
-                        ctx.font = '10px sans-serif';
-                        ctx.fillText('Today', todayX + 5, y.top + 15);
-                        ctx.restore();
+                            // Add "Today" label
+                            ctx.fillStyle = '#ff3b30';
+                            ctx.font = '10px sans-serif';
+                            ctx.fillText('Today', todayX + 5, y.top + 15);
+                            ctx.restore();
+                        }
                     }
-                }
-            }]
-        });
+                }]
+            });
+        }, 50);
     }
 });

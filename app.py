@@ -26,7 +26,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 EXCEL_PATH = os.path.join(UPLOAD_FOLDER, 'tasks.xlsx')
 
 # Configure Flask-SQLAlchemy
-is_testing = 'unittest' in sys.modules or app.config.get('TESTING', False)
+is_testing = any('pytest' in arg or 'test' in arg for arg in sys.argv) or app.config.get('TESTING', False)
 if is_testing:
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
 else:
@@ -35,6 +35,9 @@ else:
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+with app.app_context():
+    db.create_all()
+
 
 # User authentication credentials
 USER_CREDENTIALS = {
@@ -879,21 +882,21 @@ def sync_sharepoint():
                 "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
                 "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
                 
-                "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks'],
-                "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days'],
-                "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto_qty'],
+                "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1'],
+                "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1'],
+                "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto_qty', 'proto1'],
                 
-                "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks'],
-                "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days'],
-                "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt_qty'],
+                "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2'],
+                "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3'],
+                "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt_qty', 'dvt1'],
                 
-                "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks'],
-                "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days'],
-                "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt_qty'],
+                "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4'],
+                "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5'],
+                "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt_qty', 'evt1'],
                 
-                "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks'],
-                "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days'],
-                "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt_qty'],
+                "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6'],
+                "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7'],
+                "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt_qty', 'pvt1'],
             }
             
             for field, rules in fuzzy_rules.items():
@@ -1065,18 +1068,18 @@ def _import_sheets_to_db(xl, selected_sheets, removed_cols_map, file_path):
         "start_date": ['start', 'start date', 'date', 'timeline start'],
         "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
         "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
-        "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks'],
-        "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days'],
-        "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity'],
-        "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks'],
-        "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days'],
-        "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity'],
-        "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks'],
-        "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days'],
-        "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity'],
-        "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks'],
-        "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days'],
-        "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity'],
+        "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1'],
+        "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1'],
+        "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto1'],
+        "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2'],
+        "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3'],
+        "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt1'],
+        "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4'],
+        "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5'],
+        "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt1'],
+        "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6'],
+        "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7'],
+        "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt1'],
     }
 
     synced_projects = []
@@ -1340,21 +1343,21 @@ def api_sharepoint_load_transformed():
                 "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
                 "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
                 
-                "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks'],
-                "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days'],
-                "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto_qty'],
+                "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1'],
+                "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1'],
+                "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto_qty', 'proto1'],
                 
-                "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks'],
-                "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days'],
-                "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt_qty'],
+                "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2'],
+                "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3'],
+                "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt_qty', 'dvt1'],
                 
-                "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks'],
-                "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days'],
-                "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt_qty'],
+                "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4'],
+                "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5'],
+                "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt_qty', 'evt1'],
                 
-                "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks'],
-                "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days'],
-                "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt_qty'],
+                "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6'],
+                "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7'],
+                "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt_qty', 'pvt1'],
             }
             
             for field, rules in fuzzy_rules.items():
@@ -1986,5 +1989,24 @@ This email was auto-generated by the Operations Dashboard."""
         "subject": subject
     })
 
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    import traceback
+    tb = traceback.format_exc()
+    log_path = os.path.join(app.config['UPLOAD_FOLDER'], 'error_log.txt')
+    try:
+        with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(f"\n--- ERROR AT {datetime.datetime.now()} ---\n")
+            f.write(tb)
+            f.write("\n------------------------------------\n")
+    except Exception:
+        pass
+    return jsonify({"error": str(e), "traceback": tb}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002, debug=True)
+
