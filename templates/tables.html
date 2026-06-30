@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Project Tables — Test Ops Dashboard{% endblock %}
+{% block title %}Project — Test Ops Dashboard{% endblock %}
 
 {% block content %}
 <div class="container-fluid" style="padding: 20px; max-width: 1200px; margin: 0 auto;">
@@ -12,7 +12,7 @@
             </a>
             <div style="display: flex; align-items: center; gap: 12px;">
                 <span style="font-size: 24px;">📋</span>
-                <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: var(--color-text);">Project Tables</h1>
+                <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: var(--color-text);">Project</h1>
             </div>
         </div>
         <button class="btn btn-primary" id="btn-create-project" style="padding: 8px 16px; font-weight: 600;">
@@ -48,7 +48,7 @@
         <span id="showing-count" style="font-size: 13px; color: var(--color-text-muted);">Showing 0-0 of 0</span>
         <div class="pagination" style="display: flex; gap: 6px;">
             <button class="btn btn-secondary" id="btn-prev" style="padding: 6px 12px; font-size: 12px; font-weight: 600;" disabled>◀ Prev</button>
-            <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px; font-weight: 600;">1</button>
+            <button class="btn btn-primary" id="btn-page-num" style="padding: 6px 12px; font-size: 12px; font-weight: 600;">1</button>
             <button class="btn btn-secondary" id="btn-next" style="padding: 6px 12px; font-size: 12px; font-weight: 600;" disabled>Next ▶</button>
         </div>
     </div>
@@ -144,6 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleArchived.classList.remove('active');
         toggleArchived.style.background = 'transparent';
         toggleArchived.style.color = 'var(--color-text-muted)';
+        currentPage = 1;
         loadProjects();
     });
 
@@ -155,12 +156,14 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleActive.classList.remove('active');
         toggleActive.style.background = 'transparent';
         toggleActive.style.color = 'var(--color-text-muted)';
+        currentPage = 1;
         loadProjects();
     });
 
     // Search
     searchInput.addEventListener('input', (e) => {
         searchQuery = e.target.value.toLowerCase().trim();
+        currentPage = 1;
         loadProjects();
     });
 
@@ -243,14 +246,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Load Projects
+    let totalItemsCount = 0;
     function loadProjects() {
         fetch(`/api/projects?status=${activeTab}`)
             .then(res => res.json())
             .then(projects => {
                 projectsData = projects;
                 // Filter by search
-                const filtered = projects.filter(p => p.name.toLowerCase().includes(searchQuery) || p.description.toLowerCase().includes(searchQuery));
-                renderProjects(filtered);
+                const filtered = projects.filter(p => (p.name || '').toLowerCase().includes(searchQuery) || (p.description || '').toLowerCase().includes(searchQuery));
+                totalItemsCount = filtered.length;
+                const totalPages = Math.max(1, Math.ceil(totalItemsCount / pageSize));
+                if (currentPage > totalPages) currentPage = totalPages;
+                renderProjects(filtered, totalItemsCount);
             })
             .catch(err => {
                 console.error(err);
@@ -258,20 +265,35 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
-    function renderProjects(projects) {
+    function renderProjects(projects, totalCount) {
         cardsContainer.innerHTML = '';
-        showingCount.textContent = `Showing 1-${projects.length} of ${projects.length}`;
-
-        if (projects.length === 0) {
+        // Calculate pagination slice
+        const startIndex = (currentPage - 1) * pageSize;
+        const pageItems = projects.slice(startIndex, startIndex + pageSize);
+        if (totalCount === 0) {
+            showingCount.textContent = `Showing 0-0 of 0`;
             cardsContainer.innerHTML = `
                 <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--color-text-muted);">
                     No projects found. Click "Create Project" above to add one.
                 </div>
             `;
+            updatePaginationControls(totalCount);
             return;
         }
 
-        projects.forEach(p => {
+        showingCount.textContent = `Showing ${startIndex + 1}-${startIndex + pageItems.length} of ${totalCount}`;
+
+        if (pageItems.length === 0) {
+            cardsContainer.innerHTML = `
+                <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--color-text-muted);">
+                    No projects found. Click "Create Project" above to add one.
+                </div>
+            `;
+            updatePaginationControls(totalCount);
+            return;
+        }
+
+        pageItems.forEach(p => {
             const card = document.createElement('div');
             card.className = 'grid-card';
             card.style.padding = '20px';
@@ -360,6 +382,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             cardsContainer.appendChild(card);
         });
+
+        updatePaginationControls(totalCount);
     }
 
     function updateProjectStatus(name, status) {
@@ -386,6 +410,44 @@ document.addEventListener('DOMContentLoaded', () => {
             loadProjects();
         })
         .catch(err => showToast('Failed to delete project', 'error'));
+    }
+
+    // Pagination state
+    let currentPage = 1;
+    const pageSize = 9; // projects per page (grid cards)
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    const btnPageNum = document.getElementById('btn-page-num');
+
+    btnPrev.addEventListener('click', () => {
+        console.debug('Prev clicked', { currentPage, totalItemsCount, pageSize });
+        if (!btnPrev || !btnNext) return console.debug('Pagination buttons missing');
+        const totalPages = Math.max(1, Math.ceil(totalItemsCount / pageSize));
+        if (currentPage > 1) {
+            currentPage -= 1;
+            loadProjects();
+        } else {
+            btnPrev.disabled = true;
+        }
+    });
+
+    btnNext.addEventListener('click', () => {
+        console.debug('Next clicked', { currentPage, totalItemsCount, pageSize });
+        if (!btnPrev || !btnNext) return console.debug('Pagination buttons missing');
+        const totalPages = Math.max(1, Math.ceil(totalItemsCount / pageSize));
+        if (currentPage < totalPages) {
+            currentPage += 1;
+            loadProjects();
+        } else {
+            btnNext.disabled = true;
+        }
+    });
+
+    function updatePaginationControls(totalItems) {
+        const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+        btnPageNum.textContent = String(currentPage);
+        btnPrev.disabled = currentPage <= 1;
+        btnNext.disabled = currentPage >= totalPages;
     }
 
     // Initial load

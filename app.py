@@ -2,6 +2,7 @@ import os
 import datetime
 import sys
 from functools import wraps
+from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, session
 from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
@@ -17,6 +18,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 app = Flask(__name__)
+load_dotenv()
 app.secret_key = "super_secret_key_for_ops_operations"
 
 # Configure App Data and Upload Folders
@@ -472,7 +474,7 @@ def dashboard():
 @app.route('/chart')
 @login_required
 def chart_page():
-    return render_template('chart.html', username=session.get('username'), active_page='chart')
+    return render_template('gantt.html', username=session.get('username'), active_page='chart')
 
 @app.route('/tables')
 @login_required
@@ -1599,102 +1601,221 @@ def api_chat():
 # --- GANTT CHART GENERATION ---
 def generate_gantt_chart_image(records, filepath, project_name=None):
     """Generates a multi-row project Gantt timeline image using Matplotlib and saves it."""
-    if not records:
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.text(0.5, 0.5, "No active test methods to display", 
-                horizontalalignment='center', verticalalignment='center', fontsize=12)
-        ax.set_axis_off()
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
-        plt.close()
-        return
+    def parse_date(value):
+        if not value:
+            return None
+        if isinstance(value, datetime.datetime):
+            return value
+        if isinstance(value, datetime.date):
+            return datetime.datetime.combine(value, datetime.time.min)
+        try:
+            return datetime.datetime.strptime(value, "%Y-%m-%d")
+        except Exception:
+            try:
+                return datetime.datetime.fromisoformat(value)
+            except Exception:
+                return None
 
-    # Filter by project if specified
+    def wrap_label(text, width=44):
+        if not text:
+            return ""
+        words = str(text).split()
+        lines = []
+        current = []
+        for word in words:
+            if len(" ".join(current + [word])) <= width:
+                current.append(word)
+            else:
+                lines.append(" ".join(current))
+                current = [word]
+        if current:
+            lines.append(" ".join(current))
+        return "\n".join(lines)
+
     if project_name:
         records = [r for r in records if r.get("Project Name") == project_name]
 
     if not records:
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.text(0.5, 0.5, f"No active test methods for Project {project_name}", 
+        ax.text(0.5, 0.5, f"No active test methods for Project {project_name}" if project_name else "No active test methods to display",
                 horizontalalignment='center', verticalalignment='center', fontsize=12)
         ax.set_axis_off()
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         plt.close()
         return
 
-    fig, ax = plt.subplots(figsize=(11, 6))
-    
     phase_colors = {
-        "Proto": "#8E44AD",  # Purple
-        "DVT": "#2980B9",    # Blue
-        "EVT": "#27AE60",    # Green
-        "PVT": "#D35400"     # Orange
+        "Proto": "#8E44AD",
+        "DVT": "#2980B9",
+        "EVT": "#27AE60",
+        "PVT": "#D35400"
     }
-    
-    y_labels = []
-    y_ticks = []
-    
-    # We plot each phase of each test record on its own separate row
-    row_idx = 0
-    
-    # Reverse to show top-down
-    for r in reversed(records):
-        try:
-            current_start = datetime.datetime.strptime(r["Start Date"], "%Y-%m-%d")
-        except Exception:
+
+    rows = []
+    min_date = None
+    max_date = None
+
+    for record in records:
+        start_date = parse_date(record.get("Start Date"))
+        if not start_date:
             continue
-            
+
+        if min_date is None or start_date < min_date:
+            min_date = start_date
+        if max_date is None or start_date > max_date:
+            max_date = start_date
+
         phases = [
-            ("Proto", r.get("Proto Weeks", 0), r.get("Proto Days", 0)),
-            ("DVT", r.get("DVT Weeks", 0), r.get("DVT Days", 0)),
-            ("EVT", r.get("EVT Weeks", 0), r.get("EVT Days", 0)),
-            ("PVT", r.get("PVT Weeks", 0), r.get("PVT Days", 0))
+            ("Proto", int(record.get("Proto Weeks", 0) or 0), int(record.get("Proto Days", 0) or 0)),
+            ("DVT", int(record.get("DVT Weeks", 0) or 0), int(record.get("DVT Days", 0) or 0)),
+            ("EVT", int(record.get("EVT Weeks", 0) or 0), int(record.get("EVT Days", 0) or 0)),
+            ("PVT", int(record.get("PVT Weeks", 0) or 0), int(record.get("PVT Days", 0) or 0))
         ]
-        
+
+        label = f"{record.get('Test Number', 'Unknown')} — {record.get('Test Method', 'Untitled')}"
+        label = wrap_label(label, width=44)
+
+        bars = []
+        phase_start = start_date
         for phase_name, weeks, days in phases:
-            duration_days = int(weeks) * 7 + int(days)
-            if duration_days > 0:
-                # Plot bar on its own row
-                ax.barh(row_idx, duration_days, left=current_start, color=phase_colors[phase_name], edgecolor='none', height=0.4, alpha=0.9)
-                
-                # Add text label inside the bar
-                label_text = f"[{r['Category']}] {r['Test Method']} ({r['Test Number']}) - {phase_name}"
-                ax.text(current_start + datetime.timedelta(days=1), row_idx, label_text, 
-                        va='center', ha='left', color='white', fontsize=8, fontweight='bold')
-                
-                y_labels.append(label_text)
-                y_ticks.append(row_idx)
-                row_idx += 1
-                
-            # Move the timeline cursor forward for the next phase
-            current_start += datetime.timedelta(days=duration_days)
-            
-    ax.set_yticks([]) # Hide Y-axis labels since they are drawn inside the bars
-    
-    # Configure X-axis as dates
-    ax.xaxis.set_major_locator(mdates.DayLocator(interval=7))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    plt.xticks(rotation=30, fontsize=8, color='#555555')
-    
-    # Styling
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('#cccccc')
-    ax.spines['bottom'].set_color('#cccccc')
-    ax.grid(axis='x', linestyle='--', alpha=0.5, color='#dddddd')
-    
-    # Legend
-    from matplotlib.patches import Patch
-    legend_elements = [Patch(facecolor=color, label=phase) for phase, color in phase_colors.items()]
-    ax.legend(handles=legend_elements, loc='upper right', frameon=True, facecolor='#ffffff', edgecolor='#e5e5e7', fontsize=8)
-    
-    title_text = f"Project Gantt Timeline - Project {project_name}" if project_name else "Project Gantt Timeline"
-    plt.title(title_text, fontsize=12, fontweight='bold', pad=15, color='#121212')
+            duration = weeks * 7 + days
+            if duration <= 0:
+                continue
+            phase_end = phase_start + datetime.timedelta(days=duration)
+            bar = {
+                "phase": phase_name,
+                "start": phase_start,
+                "duration": duration,
+                "color": phase_colors.get(phase_name, "#999999")
+            }
+            bars.append(bar)
+            if min_date is None or bar["start"] < min_date:
+                min_date = bar["start"]
+            if max_date is None or phase_end > max_date:
+                max_date = phase_end
+            phase_start = phase_end
+
+        if bars:
+            rows.append({"label": label, "bars": bars})
+
+    if not rows:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.text(0.5, 0.5, "No valid timeline data to display.",
+                horizontalalignment='center', verticalalignment='center', fontsize=12)
+        ax.set_axis_off()
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.close()
+        return
+
+    # Visual style tuned to the provided design: dark background, rounded bars, weekly grid
+    fig_height = max(4, len(rows) * 0.6 + 2)
+    bg_color = '#06293a'  # deep navy
+    fg_text = '#eaf6ff'
+    grid_color = '#10475a'
+
+    # Use a two-column layout: left sidebar for labels, right for the gantt
+    from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
+    fig = plt.figure(figsize=(12, fig_height), facecolor=bg_color)
+    gs = fig.add_gridspec(1, 2, width_ratios=[0.28, 0.72], wspace=0.02)
+    ax_left = fig.add_subplot(gs[0, 0])
+    ax = fig.add_subplot(gs[0, 1])
+
+    ax.set_facecolor(bg_color)
+    ax_left.set_facecolor('#053242')
+
+    # Configure left axis (labels sidebar)
+    ax_left.set_ylim(-0.5, len(rows) - 0.5)
+    ax_left.invert_yaxis()
+    ax_left.xaxis.set_visible(False)
+    ax_left.yaxis.set_visible(False)
+
+    # Draw category groups on the left sidebar
+    categories = [r.get('category', '') for r in rows]
+    group_positions = {}
+    for idx, cat in enumerate(categories):
+        group_positions.setdefault(cat, []).append(idx)
+
+    for cat, indices in group_positions.items():
+        mid = (indices[0] + indices[-1]) / 2
+        ax_left.text(0.05, mid, str(cat), va='center', ha='left', fontsize=11, color=fg_text, weight='bold')
+
+    # Also print each row's short method label under the category area
+    for y, row in enumerate(rows):
+        short = row['label'].split('\n')[0]
+        ax_left.text(0.05, y + 0.28, short, va='center', ha='left', fontsize=8, color='#cdeefb')
+
+    # Right axis: Gantt chart area
+    start_num = mdates.date2num(min_date - datetime.timedelta(days=1))
+    end_num = mdates.date2num(max_date + datetime.timedelta(days=3))
+    ax.set_xlim(start_num, end_num)
+    ax.set_ylim(-0.5, len(rows) - 0.5)
+    ax.invert_yaxis()
+
+    # Weekly vertical lines and subtle grid
+    cur_date = min_date
+    while cur_date <= max_date:
+        x = mdates.date2num(cur_date)
+        ax.axvline(x, color=grid_color, linewidth=0.7, alpha=0.6)
+        cur_date += datetime.timedelta(days=7)
+
+    # Month labels above the gantt area
+    month_iter = datetime.date(min_date.year, min_date.month, 1)
+    top_y = -0.8
+    while month_iter <= max_date.date():
+        month_start = datetime.datetime(month_iter.year, month_iter.month, 1)
+        next_month = (month_start.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+        month_mid = month_start + (next_month - month_start) / 2
+        ax.text(mdates.date2num(month_mid), top_y, month_start.strftime('%B'), ha='center', va='bottom', color=fg_text, fontsize=11, fontweight='bold')
+        month_iter = next_month.date()
+
+    # Draw rounded bars
+    for y, row in enumerate(rows):
+        for bar in row['bars']:
+            x = mdates.date2num(bar['start'])
+            width = bar['duration']
+            height = 0.6
+            y_pos = y - height / 2
+            box = FancyBboxPatch((x, y_pos), width, height,
+                                 boxstyle='round,pad=0.02,rounding_size=6',
+                                 linewidth=0, facecolor=bar['color'], alpha=0.98)
+            ax.add_patch(box)
+            # small outline to make bars pop
+            edge = Rectangle((x, y_pos), width, height, linewidth=0.6, edgecolor='#083a4a', facecolor='none')
+            ax.add_patch(edge)
+            # label inside if enough space
+            try:
+                label_text = row['label'].split('\n')[0]
+                if width >= 6:
+                    ax.text(x + 0.4, y, label_text, va='center', ha='left', color='white', fontsize=8, fontweight='bold')
+            except Exception:
+                pass
+
+    # X-axis formatting
+    ax.xaxis_date()
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    plt.setp(ax.get_xticklabels(), rotation=30, ha='right', color=fg_text, fontsize=8)
+
+    # Clean spines
+    for spine in ['top', 'right', 'left', 'bottom']:
+        ax.spines[spine].set_visible(False)
+
+    # Legend and title
+    legend_elements = [Patch(facecolor=color, edgecolor='none', label=phase) for phase, color in phase_colors.items()]
+    ax.legend(handles=legend_elements, loc='upper right', frameon=False, fontsize=9)
+
+    today = datetime.datetime.now()
+    if min_date <= today <= max_date:
+        ax.axvline(mdates.date2num(today), color='#ffcc00', linewidth=1.2, linestyle='--', alpha=0.9)
+
+    ax.set_title(f"Project Gantt Timeline — Project {project_name}" if project_name else "Project Gantt Timeline", fontsize=14, fontweight='bold', pad=14, color=fg_text)
+
     plt.tight_layout()
-    plt.savefig(filepath, dpi=300)
-    plt.close()
+    plt.savefig(filepath, dpi=300, bbox_inches='tight', facecolor=fig.get_facecolor())
+    plt.close(fig)
 
 # --- PDF REPORT GENERATION ---
-def generate_pdf_report(filename, project_name=None):
+def generate_pdf_report(filename, project_name=None, comment=None):
     """Generates a styled Test Operations PDF report containing a Gantt chart and rejected products."""
     ExcelDataStore.initialize_db()
     
@@ -1785,18 +1906,41 @@ def generate_pdf_report(filename, project_name=None):
     doc_title = f"Project Gantt Timeline - Project {project_name}" if project_name else "Daily Test Operations Report"
     story.append(Paragraph(doc_title, title_style))
     story.append(Paragraph(f"Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Confidential Operations Data", subtitle_style))
-    
-    # Add Gantt Chart Section
+
+    summary_style = ParagraphStyle(
+        'OpsSummary',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        textColor=steel_gray,
+        spaceAfter=6
+    )
+
+    total_records = len(records_dict)
+    total_defects = sum(int(r.get('Defect Qty', 0) or 0) for r in records_dict)
+    total_comments = sum(1 for r in records_dict if str(r.get('Comments', '')).strip())
+
+    summary_texts = [
+        f"Project: {project_name}" if project_name else "Project: All Active Projects",
+        f"Total task records: {total_records}",
+        f"Total defects logged: {total_defects}",
+        f"Records with comments or rejections: {total_comments}"
+    ]
+    for text in summary_texts:
+        story.append(Paragraph(text, summary_style))
+    story.append(Spacer(1, 12))
+
+    if comment and str(comment).strip():
+        story.append(Paragraph("Report Comment", section_title_style))
+        story.append(Paragraph(str(comment).strip().replace('\n', '<br/>'), summary_style))
+        story.append(Spacer(1, 12))
+
+    story.append(Paragraph("Timeline Summary", section_title_style))
+    story.append(Paragraph("The Gantt chart below represents scheduled phase progression for each test method, based on actual start dates and phase durations. Entries are ordered by earliest start date to provide a clean timeline overview.", summary_style))
+    story.append(Spacer(1, 8))
     story.append(Paragraph("Test Method Milestones (Gantt Chart)", section_title_style))
     story.append(Image(gantt_image_path, width=500, height=270))
     story.append(Spacer(1, 20))
-    
-    # Filter for rejected rows (where comments is not empty)
-    rejected_records = [r for r in records_dict if str(r.get("Comments", "")).strip() != ""]
-    
-    story.append(Paragraph("Rejected Products Inventory", section_title_style))
-    
-    # Full test records table (all records, not just rejections)
     story.append(Paragraph("Test Records Summary", section_title_style))
     all_table_data = [[
         Paragraph("#", cell_header),
@@ -1902,9 +2046,10 @@ def generate_pdf_report(filename, project_name=None):
 @login_required
 def generate_report():
     project_name = request.args.get('project')
+    comment = request.args.get('comment')
     pdf_filename = os.path.join(UPLOAD_FOLDER, "Daily_Operations_Report.pdf")
     try:
-        generate_pdf_report(pdf_filename, project_name)
+        generate_pdf_report(pdf_filename, project_name, comment)
         download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
         return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     except Exception as e:
@@ -1936,16 +2081,21 @@ This email was auto-generated by the Operations Dashboard."""
     mail_server = os.getenv('MAIL_SERVER')
     mail_username = os.getenv('MAIL_USERNAME')
     mail_password = os.getenv('MAIL_PASSWORD')
-    mail_sender = os.getenv('MAIL_DEFAULT_SENDER', mail_username)
+    mail_sender = os.getenv('MAIL_DEFAULT_SENDER') or os.getenv('MAIL_SENDER') or mail_username
     mail_port = int(os.getenv('MAIL_PORT', 587))
-    mail_tls = os.getenv('MAIL_USE_TLS', 'True').lower() == 'true'
+    mail_tls = os.getenv('MAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
+    mail_ssl = os.getenv('MAIL_USE_SSL', 'False').lower() in ('true', '1', 'yes')
+    mail_timeout = int(os.getenv('MAIL_TIMEOUT', 15))
 
-    if mail_server and mail_username and mail_password:
+    if mail_server:
         try:
             import smtplib
             from email.mime.multipart import MIMEMultipart
             from email.mime.text import MIMEText
             from email.mime.application import MIMEApplication
+
+            if not mail_sender:
+                raise ValueError('MAIL_DEFAULT_SENDER or MAIL_USERNAME must be configured to send email.')
 
             msg = MIMEMultipart()
             msg['From'] = mail_sender
@@ -1959,10 +2109,16 @@ This email was auto-generated by the Operations Dashboard."""
                 attachment.add_header('Content-Disposition', 'attachment', filename=pdf_download_name)
                 msg.attach(attachment)
 
-            with smtplib.SMTP(mail_server, mail_port) as smtp:
-                if mail_tls:
+            if mail_ssl:
+                smtp_class = smtplib.SMTP_SSL
+            else:
+                smtp_class = smtplib.SMTP
+
+            with smtp_class(mail_server, mail_port, timeout=mail_timeout) as smtp:
+                if not mail_ssl and mail_tls:
                     smtp.starttls()
-                smtp.login(mail_username, mail_password)
+                if mail_username and mail_password:
+                    smtp.login(mail_username, mail_password)
                 smtp.sendmail(mail_sender, recipient, msg.as_string())
 
             return jsonify({
@@ -1971,13 +2127,22 @@ This email was auto-generated by the Operations Dashboard."""
                 "message": f"Email with PDF report successfully sent to {recipient}!"
             })
         except Exception as e:
-            # Fall through to simulation on SMTP error
             return jsonify({
-                "success": True,
-                "mode": "simulation",
-                "message": f"SMTP error ({str(e)}). Email simulated. PDF was generated successfully.",
-                "pdf_generated": True
-            })
+                "success": False,
+                "mode": "smtp",
+                "message": f"Failed to send email via SMTP: {str(e)}",
+                "error": str(e)
+            }), 500
+
+    # Step 3: Simulation mode (no SMTP configured)
+    return jsonify({
+        "success": True,
+        "mode": "simulation",
+        "message": f"Email simulated (no SMTP configured). PDF report generated and would be sent to {recipient}.",
+        "pdf_generated": True,
+        "recipient": recipient,
+        "subject": subject
+    })
 
     # Step 3: Simulation mode (no SMTP configured)
     return jsonify({

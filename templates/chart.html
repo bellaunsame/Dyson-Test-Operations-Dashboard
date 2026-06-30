@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Chart Module — Gantt Timeline{% endblock %}
+{% block title %}Chart — Gantt Timeline{% endblock %}
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
@@ -73,13 +73,8 @@
         <div style="display:flex;align-items:center;gap:12px;">
             <div class="chart-icon"><i class="fa-solid fa-square-poll-horizontal"></i></div>
             <div>
-                <h1 style="margin:0;font-size:22px;font-weight:700;color:var(--color-text-main);">Chart Module</h1>
-                <p style="margin:0;font-size:13px;color:var(--color-text-muted);">AI-generated Gantt charts auto-calculated from project milestone data</p>
-            </div>
-        </div>
-
-        <div class="chart-controls">
-            <div class="ctrl-group">
+                <h1 style="margin:0;font-size:22px;font-weight:700;color:var(--color-text-main);">Gantt Timeline</h1>
+                <p style="margin:4px 0 0;font-size:13px;color:var(--color-text-muted);max-width:560px;line-height:1.5;">View your project phases on a clear timeline with phase-level dates, defect counts, and progress context. Hover over any bar for detailed phase information.</p>
                 <label>PROJECT</label>
                 <select class="ctrl-select" id="gantt-project-select">
                     <option value="">— Select a project —</option>
@@ -135,7 +130,7 @@
             <div id="gantt-empty-state" class="empty-state">
                 <i class="fa-solid fa-square-poll-horizontal"></i>
                 <h3>No Project Selected</h3>
-                <p>Select a project above to render its AI-calculated Gantt chart.</p>
+                <p>Select a project above to render the Gantt chart from actual project data.</p>
             </div>
             <div id="gantt-loading" class="loading-spinner" style="display:none;">
                 <i class="fa-solid fa-spinner fa-spin fa-2x"></i><br><br>Building Gantt chart...

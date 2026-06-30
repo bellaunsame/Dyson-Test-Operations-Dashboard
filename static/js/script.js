@@ -794,18 +794,21 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .then(res => res.json())
             .then(data => {
-                closeEmailModal();
-                showToast(data.message, 'success');
-                
-                // Show simulated SMTP logs
+                if (data.success) {
+                    closeEmailModal();
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.message || 'Unable to send email.', 'error');
+                }
+
                 const logModal = document.getElementById('email-log-modal');
                 const logContent = document.getElementById('email-log-content');
-                if (logModal && logContent) {
+                if (data.mode === 'simulation' && logModal && logContent) {
                     const timestamp = new Date().toISOString();
                     const pdfName = projectVal ? `Gantt_Report_${projectVal}.pdf` : 'Operations_Report.pdf';
                     logContent.textContent = `[SMTP SIMULATOR - ${timestamp}]
-Connecting to mail server... SUCCESS (Simulated)
-FROM: operations-dashboard@ops.com
+Connecting to mail server... SIMULATED
+FROM: ${document.getElementById('email-to').value}
 TO: ${recipient}
 SUBJECT: ${subject}
 ATTACHMENTS: ${pdfName} (Generated)
@@ -814,6 +817,8 @@ ${body}
 --------------------------------------------------
 Mail Status: Queued and Sent successfully (Simulated)`;
                     logModal.style.display = 'flex';
+                } else if (logModal) {
+                    logModal.style.display = 'none';
                 }
             })
             .catch(err => {

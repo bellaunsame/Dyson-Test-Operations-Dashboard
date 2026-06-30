@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}Gantt — Project Timeline{% endblock %}
+
+{% block head %}
+<style>
+  .gantt-page {
+    max-width: 1200px;
+    margin: 24px auto;
+    padding: 18px;
+    background: #000;
+    color: #fff;
+  }
+  .gantt-header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+  .gantt-controls { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
+  .ctrl-group { display:flex; flex-direction:column; gap:6px; }
+  .ctrl-label { color:#d1d5db; font-size:12px; font-weight:600; }
+  .ctrl-select, textarea#pdf-comment { background:#111; border:1px solid #333; color:#fff; border-radius:8px; outline:none; }
+  .ctrl-select { min-width:240px; padding:10px 14px; transition:border-color 0.25s ease; }
+  textarea#pdf-comment { min-width:280px; min-height:72px; padding:10px 12px; resize:vertical; font:inherit; }
+  .ctrl-select:focus, textarea#pdf-comment:focus { border-color:#555; }
+  .scale-group { display:flex; gap:6px; flex-wrap:wrap; }
+  .scale-btn { background:transparent; border:1px solid #333; color:#fff; padding:8px 12px; border-radius:8px; cursor:pointer; font:inherit; }
+  .scale-btn.active { background:#222; }
+  .gantt-card {
+    margin-top:16px;
+    background:#090909;
+    border:1px solid #222;
+    border-radius:10px;
+    overflow:hidden;
+  }
+  .gantt-body { padding:18px; }
+  .gantt-instructions {
+    color:#e5e7eb;
+    font-size:13px;
+  }
+  .export-btn {
+    background:#111;
+    color:#fff;
+    padding:10px 14px;
+    border-radius:8px;
+    text-decoration:none;
+    font-weight:700;
+    border:1px solid #333;
+  }
+  #gantt-canvas-wrap {
+    min-height:360px;
+  }
+  .gantt-stats-row { display:flex; flex-wrap:wrap; gap:14px; margin-bottom:18px; }
+  .gantt-stat { min-width:120px; background:#111; border:1px solid #222; border-radius:10px; padding:12px 14px; }
+  .gantt-stat-label { font-size:11px; color:#9ca3af; text-transform:uppercase; letter-spacing:0.05em; }
+  .gantt-stat-value { margin-top:6px; font-size:18px; font-weight:700; color:#fff; }
+  select#gantt-project-select {
+    min-width:240px;
+    padding:10px 14px;
+    background:#111;
+    border:1px solid #333;
+    color:#fff;
+    border-radius:8px;
+    outline:none;
+    transition: border-color 0.25s ease;
+  }
+  select#gantt-project-select:focus {
+    border-color:#555;
+  }
+  .gantt-header h2 {
+    color:#ffffff;
+    margin-bottom:8px;
+  }
+  .gantt-instructions {
+    color:#d1d5db;
+  }
+  .gantt-card {
+    box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="gantt-page">
+  <div class="gantt-header">
+    <div>
+      <h2 style="margin:0">Project Gantt</h2>
+      <div class="gantt-instructions">Select a project to render a clear, readable timeline. Use the export button to download a PDF report.</div>
+    </div>
+    <div class="gantt-controls">
+      <div class="ctrl-group">
+        <span class="ctrl-label">Project</span>
+        <select id="gantt-project-select" class="ctrl-select">
+          <option value="">— Select a project —</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Category</span>
+        <select id="gantt-category-select" class="ctrl-select">
+          <option value="all">All Categories</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Scale</span>
+        <div class="scale-group">
+          <button type="button" class="scale-btn active" data-scale="week">Week</button>
+          <button type="button" class="scale-btn" data-scale="day">Day</button>
+          <button type="button" class="scale-btn" data-scale="month">Month</button>
+          <button type="button" class="scale-btn" data-scale="year">Year</button>
+        </div>
+      </div>
+      <div class="ctrl-group" style="flex:1 1 320px;">
+        <span class="ctrl-label">Report Comment</span>
+        <textarea id="pdf-comment" placeholder="Leave a comment"></textarea>
+      </div>
+      <div class="ctrl-group" style="align-self:flex-end;">
+        <a id="btn-export-pdf" class="export-btn" href="#" style="pointer-events:none;opacity:0.5;">Export PDF</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="gantt-card">
+    <div class="gantt-body">
+      <div id="gantt-empty-state" class="gantt-instructions" style="text-align:center;padding:48px;">
+        <h3 style="margin:0 0 12px;">No project selected</h3>
+        <p>Select a project above to render its timeline from actual project data.</p>
+      </div>
+      <div id="gantt-loading" class="gantt-instructions" style="display:none;text-align:center;padding:48px;">
+        <h3 style="margin:0 0 12px;">Loading chart...</h3>
+      </div>
+      <div class="gantt-stats-row" style="display:none;">
+        <div class="gantt-stat"><span class="gantt-stat-label">Test Rows</span><span class="gantt-stat-value" id="stat-rows">—</span></div>
+        <div class="gantt-stat"><span class="gantt-stat-label">Categories</span><span class="gantt-stat-value" id="stat-cats">—</span></div>
+        <div class="gantt-stat"><span class="gantt-stat-label">Timeline Span</span><span class="gantt-stat-value" id="stat-span">—</span></div>
+        <div class="gantt-stat"><span class="gantt-stat-label">Phase Bars</span><span class="gantt-stat-value" id="stat-bars">—</span></div>
+        <div class="gantt-stat"><span class="gantt-stat-label">Total Defects</span><span class="gantt-stat-value" id="stat-defects">—</span></div>
+      </div>
+      <div id="gantt-canvas-wrap" style="display:none;">
+        <canvas id="ganttChart"></canvas>
+      </div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<script src="/static/js/chart_module.js"></script>
+{% endblock %}
