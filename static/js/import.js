@@ -449,7 +449,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Switch panel
         panelNavigator.classList.remove('active');
-        panelQueryEditor.add = panelQueryEditor.classList.add('active');
+        panelQueryEditor.classList.add('active');
     }
 
     // ── Render Left Queries in Editor ──

@@ -799,14 +799,53 @@ def api_sharepoint_sync():
         return jsonify({"error": "Missing file_path"}), 400
         
     file_path = data['file_path']
+    selected_sheets = data.get('selected_sheets', [])
+    removed_columns = data.get('removed_columns', {})
+    
+    # Try to load existing configuration if same file_path and no sheets provided
+    if not selected_sheets and os.path.exists(SYNC_CONFIG_PATH):
+        try:
+            with open(SYNC_CONFIG_PATH, 'r') as f:
+                old_config = json.load(f)
+            if old_config.get("file_path") == file_path:
+                selected_sheets = old_config.get("selected_sheets", [])
+                removed_columns = old_config.get("removed_columns", {})
+        except Exception:
+            pass
+            
     try:
         file_content = SharePointService.download_file(file_path)
-        with open(EXCEL_PATH, 'wb') as f:
-            f.write(file_content)
+        
+        import io
+        sheets_data = {}
+        with pd.ExcelFile(io.BytesIO(file_content)) as xl:
+            all_sheets = xl.sheet_names
+            if not selected_sheets:
+                selected_sheets = [s for s in all_sheets if s.lower().strip() != 'master data']
+                
+            for sheet in selected_sheets:
+                if sheet in all_sheets:
+                    df = xl.parse(sheet)
+                    df = clean_dataframe_headers(df)
+                    removed = removed_columns.get(sheet, [])
+                    if removed:
+                        df = df.drop(columns=[col for col in removed if col in df.columns], errors='ignore')
+                    sheets_data[sheet] = df
+                    
+        if not sheets_data:
+            sheets_data["Sheet1"] = pd.DataFrame(columns=["Category"])
             
+        with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+            for sheet, df in sheets_data.items():
+                df.to_excel(writer, index=False, sheet_name=sheet)
+                
         # Save sync configuration
         with open(SYNC_CONFIG_PATH, 'w') as f:
-            json.dump({"file_path": file_path}, f)
+            json.dump({
+                "file_path": file_path,
+                "selected_sheets": selected_sheets,
+                "removed_columns": removed_columns
+            }, f)
             
         projects = ExcelDataStore.get_projects()
         total_records = sum(p["row_count"] for p in projects)
@@ -833,13 +872,36 @@ def sync_sharepoint():
         with open(SYNC_CONFIG_PATH, 'r') as f:
             config = json.load(f)
         file_path = config.get("file_path")
+        selected_sheets = config.get("selected_sheets", [])
+        removed_columns = config.get("removed_columns", {})
         if not file_path:
             return jsonify({"success": False, "error": "Invalid sync configuration."}), 400
             
         file_content = SharePointService.download_file(file_path)
-        with open(EXCEL_PATH, 'wb') as f:
-            f.write(file_content)
+        
+        import io
+        sheets_data = {}
+        with pd.ExcelFile(io.BytesIO(file_content)) as xl:
+            all_sheets = xl.sheet_names
+            if not selected_sheets:
+                selected_sheets = [s for s in all_sheets if s.lower().strip() != 'master data']
+                
+            for sheet in selected_sheets:
+                if sheet in all_sheets:
+                    df = xl.parse(sheet)
+                    df = clean_dataframe_headers(df)
+                    removed = removed_columns.get(sheet, [])
+                    if removed:
+                        df = df.drop(columns=[col for col in removed if col in df.columns], errors='ignore')
+                    sheets_data[sheet] = df
+                    
+        if not sheets_data:
+            sheets_data["Sheet1"] = pd.DataFrame(columns=["Category"])
             
+        with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+            for sheet, df in sheets_data.items():
+                df.to_excel(writer, index=False, sheet_name=sheet)
+                
         projects = ExcelDataStore.get_projects()
         total_records = sum(p["row_count"] for p in projects)
         return jsonify({
@@ -922,11 +984,49 @@ def api_local_load_transformed():
         return jsonify({"error": "Only Excel files (.xlsx, .xls) are supported"}), 400
 
     try:
-        uploaded_file.save(EXCEL_PATH)
+        import io
+        file_bytes = uploaded_file.read()
         
-        # Save local configuration
+        config_str = request.form.get('config')
+        selected_sheets = []
+        removed_columns = {}
+        if config_str:
+            try:
+                config = json.loads(config_str)
+                selected_sheets = config.get('selected_sheets', [])
+                removed_columns = config.get('removed_columns', {})
+            except Exception as e:
+                print(f"Error parsing config: {e}")
+                
+        sheets_data = {}
+        with pd.ExcelFile(io.BytesIO(file_bytes)) as xl:
+            all_sheets = xl.sheet_names
+            if not selected_sheets:
+                selected_sheets = [s for s in all_sheets if s.lower().strip() != 'master data']
+                
+            for sheet in selected_sheets:
+                if sheet in all_sheets:
+                    df = xl.parse(sheet)
+                    df = clean_dataframe_headers(df)
+                    removed = removed_columns.get(sheet, [])
+                    if removed:
+                        df = df.drop(columns=[col for col in removed if col in df.columns], errors='ignore')
+                    sheets_data[sheet] = df
+                    
+        if not sheets_data:
+            sheets_data["Sheet1"] = pd.DataFrame(columns=["Category"])
+            
+        with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+            for sheet, df in sheets_data.items():
+                df.to_excel(writer, index=False, sheet_name=sheet)
+                
+        # Save local configuration with selected sheets and transformations
         with open(SYNC_CONFIG_PATH, 'w') as f:
-            json.dump({"file_path": f"local://{filename}"}, f)
+            json.dump({
+                "file_path": f"local://{filename}",
+                "selected_sheets": selected_sheets,
+                "removed_columns": removed_columns
+            }, f)
             
         projects = ExcelDataStore.get_projects()
         total_records = sum(p["row_count"] for p in projects)
@@ -1000,14 +1100,42 @@ def api_sharepoint_load_transformed():
         return jsonify({"error": "Missing required configuration"}), 400
         
     file_path = data['file_path']
+    selected_sheets = data.get('selected_sheets', [])
+    removed_columns = data.get('removed_columns', {})
+    
     try:
         file_content = SharePointService.download_file(file_path)
-        with open(EXCEL_PATH, 'wb') as f:
-            f.write(file_content)
+        
+        import io
+        sheets_data = {}
+        with pd.ExcelFile(io.BytesIO(file_content)) as xl:
+            all_sheets = xl.sheet_names
+            if not selected_sheets:
+                selected_sheets = [s for s in all_sheets if s.lower().strip() != 'master data']
+                
+            for sheet in selected_sheets:
+                if sheet in all_sheets:
+                    df = xl.parse(sheet)
+                    df = clean_dataframe_headers(df)
+                    removed = removed_columns.get(sheet, [])
+                    if removed:
+                        df = df.drop(columns=[col for col in removed if col in df.columns], errors='ignore')
+                    sheets_data[sheet] = df
+                    
+        if not sheets_data:
+            sheets_data["Sheet1"] = pd.DataFrame(columns=["Category"])
             
-        # Save sync configuration
+        with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+            for sheet, df in sheets_data.items():
+                df.to_excel(writer, index=False, sheet_name=sheet)
+                
+        # Save sync configuration with selected sheets and transformations
         with open(SYNC_CONFIG_PATH, 'w') as f:
-            json.dump({"file_path": file_path}, f)
+            json.dump({
+                "file_path": file_path,
+                "selected_sheets": selected_sheets,
+                "removed_columns": removed_columns
+            }, f)
             
         projects = ExcelDataStore.get_projects()
         total_records = sum(p["row_count"] for p in projects)

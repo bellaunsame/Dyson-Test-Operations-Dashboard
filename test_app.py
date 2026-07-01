@@ -4,7 +4,7 @@ import datetime
 import shutil
 import pandas as pd
 import app as app_module
-from app import app, ExcelDataStore, generate_pdf_report, UPLOAD_FOLDER
+from app import app, ExcelDataStore, generate_pdf_report, UPLOAD_FOLDER, clean_dataframe_headers
 
 class TestOpsDashboardBackend(unittest.TestCase):
     
@@ -130,7 +130,28 @@ class TestOpsDashboardBackend(unittest.TestCase):
         updated_rows = ExcelDataStore.get_project_rows("893")
         self.assertEqual(updated_rows[0]["Proto Qty"], 20)
         self.assertEqual(updated_rows[0]["Comments"], "Updated comments")
-  
+
+    def test_clean_dataframe_headers_promotes_repeated_date_headers(self):
+        """Test that repeated generic Date headers are promoted and flattened correctly."""
+        raw = pd.DataFrame(
+            [
+                ['Category', 'Test Method', 'Test Number', 'Proto1', 'Date (Week)', 'Date (Day)', 'DVT1', 'Date (Week)', 'Date (Day)'],
+                ['Device (Hair Dryer)', 'Tress Imaging', 'TM-003128', 15, 11, 2, 15, 13, 10],
+                ['Device (Hair Dryer)', 'Drop Test', 'TM-003440', 15, 11, 2, 15, 13, 10],
+            ],
+            columns=['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7', 'Unnamed: 8']
+        )
+
+        cleaned = clean_dataframe_headers(raw)
+        expected_columns = [
+            'Category', 'Test Method', 'Test Number', 'Proto1',
+            'Proto1_Date (Week)', 'Proto1_Date (Day)',
+            'DVT1', 'DVT1_Date (Week)', 'DVT1_Date (Day)'
+        ]
+        self.assertEqual(cleaned.columns.tolist(), expected_columns)
+        self.assertEqual(int(cleaned.iloc[0]['Proto1_Date (Week)']), 11)
+        self.assertEqual(int(cleaned.iloc[0]['DVT1_Date (Day)']), 10)
+   
     def test_delete_record(self):
         """Test deleting a record from the Excel sheet."""
         rows = ExcelDataStore.get_project_rows("893")
@@ -158,6 +179,54 @@ class TestOpsDashboardBackend(unittest.TestCase):
                     os.remove(pdf_test_path)
                 except Exception:
                     pass
+
+    def test_load_transformed_filters_sheets_and_columns(self):
+        """Test that api_local_load_transformed only saves the selected sheets and removes specified columns."""
+        import json
+        mock_file_path = os.path.join(UPLOAD_FOLDER, 'mock_upload.xlsx')
+        
+        df1 = pd.DataFrame([{"Category": "Cat A", "Test Method": "Method A", "RemoveMe": "Trash"}])
+        df2 = pd.DataFrame([{"Category": "Cat B", "Test Method": "Method B"}])
+        
+        with pd.ExcelWriter(mock_file_path, engine='openpyxl') as writer:
+            df1.to_excel(writer, index=False, sheet_name='SheetA')
+            df2.to_excel(writer, index=False, sheet_name='SheetB')
+            
+        # Call the endpoint
+        with open(mock_file_path, 'rb') as f:
+            data = {
+                'file': (f, 'mock_upload.xlsx'),
+                'config': json.dumps({
+                    'selected_sheets': ['SheetA'],
+                    'removed_columns': {
+                        'SheetA': ['RemoveMe']
+                    }
+                })
+            }
+            # Log in as admin
+            with self.app.session_transaction() as sess:
+                sess['logged_in'] = True
+                sess['username'] = 'admin'
+                
+            response = self.app.post('/api/local/load-transformed', data=data, content_type='multipart/form-data')
+            
+        # Cleanup mock upload file
+        if os.path.exists(mock_file_path):
+            os.remove(mock_file_path)
+            
+        self.assertEqual(response.status_code, 200)
+        res_data = response.get_json()
+        self.assertTrue(res_data['success'])
+        
+        # Verify saved Excel file
+        self.assertTrue(os.path.exists(self.test_excel_path))
+        with pd.ExcelFile(self.test_excel_path) as xl:
+            self.assertEqual(xl.sheet_names, ['SheetA'])
+            df_saved = xl.parse('SheetA')
+            
+        # Verify columns
+        self.assertIn('Category', df_saved.columns)
+        self.assertNotIn('RemoveMe', df_saved.columns)
 
 if __name__ == "__main__":
     unittest.main()

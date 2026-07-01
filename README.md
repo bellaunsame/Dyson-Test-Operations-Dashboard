@@ -68,24 +68,35 @@ test-ops-dashboard/
 
 ## 🚀 Local Setup & Installation
 
-### 1. Navigate to Project
+### 1. Clone & Navigate to Project
 ```bash
+git clone <repository-url>
 cd test-ops-dashboard
 ```
 
 ### 2. Set Up Virtual Environment
+Create and activate a virtual environment to isolate project dependencies:
+
+**On Windows:**
 ```bash
 # Create virtual environment
 python -m venv venv
 
-# Activate on Windows
+# Activate virtual environment
 venv\Scripts\activate
+```
 
-# Activate on macOS/Linux
+**On macOS/Linux:**
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
 source venv/bin/activate
 ```
 
 ### 3. Install Dependencies
+Ensure you install all required packages listed in the pinned requirements file:
 ```bash
 pip install -r requirements.txt
 ```
@@ -95,18 +106,30 @@ Copy the template `.env.example` file to `.env`:
 ```bash
 cp .env.example .env
 ```
-Open `.env` and configure your Flask secret key and optional SMTP credentials if you want to test real email sending.
+Open `.env` and configure your Flask secret key and optional SharePoint or SMTP credentials if you want to test real cloud synchronization and email reporting.
 
 ### 5. Run the Application
 Start the Flask development server:
+
+**On Windows:**
 ```bash
 python app.py
 ```
+
+**On macOS/Linux:**
+```bash
+python3 app.py
+```
+
 Open your browser and navigate to `http://localhost:5002/`.
 
 ### 6. Run Unit Tests
-To verify backend functionality:
+To verify backend functionality, you can run tests using `pytest` or Python's built-in `unittest` module:
 ```bash
+# Run tests with pytest (recommended)
+pytest
+
+# Run tests with unittest
 python -m unittest test_app.py
 ```
 
