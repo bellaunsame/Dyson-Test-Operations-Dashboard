@@ -1688,6 +1688,68 @@ def convert_html_to_pdf(html_path, pdf_path):
     return True
 
 
+def generate_pdf_fallback(filename, project_name=None, comment=None, records_dict=None):
+    """Create a simple ReportLab PDF when the browser-based renderer is unavailable."""
+    if records_dict is None:
+        records_dict = ExcelDataStore.get_project_rows(project_name) if project_name else []
+
+    doc = SimpleDocTemplate(
+        filename,
+        pagesize=letter,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('Title', parent=styles['Title'], fontSize=16, leading=20, spaceAfter=10)
+    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=12, leading=14, spaceAfter=6, textColor=colors.HexColor('#0f172a'))
+    body_style = ParagraphStyle('Body', parent=styles['BodyText'], fontSize=9, leading=11)
+    small_style = ParagraphStyle('Small', parent=styles['BodyText'], fontSize=7.5, leading=9.5, textColor=colors.HexColor('#475569'))
+
+    story = []
+    story.append(Paragraph(f"Project Status Report - {project_name or 'All Projects'}", title_style))
+    story.append(Paragraph(f"Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", small_style))
+    story.append(Spacer(1, 10))
+
+    if comment:
+        story.append(Paragraph('Report Comment', heading_style))
+        story.append(Paragraph(comment, body_style))
+        story.append(Spacer(1, 8))
+
+    if records_dict:
+        # Render a clean Gantt image using the Matplotlib helper and embed it in the PDF
+        story.append(Paragraph('Timeline Summary', heading_style))
+        import tempfile as _tmp
+        png_tmp = _tmp.NamedTemporaryFile(delete=False, suffix='.png')
+        png_tmp.close()
+        # generate image with weekly scale and light theme to match PDF
+        try:
+            generate_gantt_chart_image(records_dict, png_tmp.name, project_name=project_name, theme='light', timeline_type='weeks')
+        except Exception:
+            # fallback to a small text placeholder image
+            try:
+                generate_gantt_chart_image([], png_tmp.name, project_name=project_name, theme='light', timeline_type='weeks')
+            except Exception:
+                pass
+        # embed image full-width (keep file until doc.build completes)
+        img = Image(png_tmp.name, width=doc.width, height=doc.width * 0.45)
+        story.append(Spacer(1, 8))
+        story.append(img)
+        story.append(Spacer(1, 8))
+    else:
+        story.append(Paragraph('No project data available.', body_style))
+
+    doc.build(story)
+    # cleanup image temp file now that PDF has been composed
+    try:
+        if os.path.exists(png_tmp.name):
+            os.remove(png_tmp.name)
+    except Exception:
+        pass
+    return True
+
+
 # --- PDF REPORT GENERATION ---
 def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None):
     """Generates a styled Test Operations PDF report by rendering a Jinja HTML template and using Edge/Chrome headless to print to PDF."""
@@ -1744,6 +1806,9 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         progress_callback(30, "Calculating visual timeline chunks...")
 
     if min_date and max_date:
+        total_span_days = max((max_date - min_date).days, 1)
+        # full timeline in weeks for header numbering
+        total_weeks = int((total_span_days + 6) // 7)
         current_start = min_date
         chunk_idx = 1
         while current_start < max_date:
@@ -1788,13 +1853,27 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
                             if not dur_text:
                                 dur_text = "0d"
                                 
+                            # full-timeline percentages (relative to global min/max)
+                            try:
+                                full_left = ((clamped_start - min_date).days / float(total_span_days)) * 100.0
+                            except Exception:
+                                full_left = 0.0
+                            try:
+                                full_width = (clamped_dur / float(total_span_days)) * 100.0
+                            except Exception:
+                                full_width = 0.0
+
                             row_bars.append({
                                 "phase": phase_name,
                                 "color": phase_colors.get(phase_name, "#64748b"),
                                 "left_percent": round(left_percent, 2),
                                 "width_percent": round(width_percent, 2),
+                                "left_percent_full": round(full_left, 2),
+                                "width_percent_full": round(full_width, 2),
                                 "duration_text": dur_text,
-                                "qty": qty
+                                "qty": qty,
+                                "start_date": clamped_start.strftime("%Y-%m-%d"),
+                                "end_date": clamped_end.strftime("%Y-%m-%d")
                             })
                     phase_start = phase_end
                     
@@ -1872,6 +1951,24 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         "rejected_records": rejected_records,
         "rej_by_cat": rej_by_cat
     }
+    # Add full timeline meta for template rendering
+    try:
+        if min_date and max_date:
+            total_span_days = max((max_date - min_date).days, 1)
+            total_weeks = int((total_span_days + 6) // 7)
+        else:
+            total_span_days = 1
+            total_weeks = 1
+    except Exception:
+        total_span_days = 1
+        total_weeks = 1
+
+    context.update({
+        "full_timeline_weeks": total_weeks,
+        "full_timeline_start": min_date.strftime("%Y-%m-%d") if min_date else None,
+        "full_timeline_end": max_date.strftime("%Y-%m-%d") if max_date else None,
+        "full_timeline_days": total_span_days
+    })
 
     if progress_callback:
         progress_callback(75, "Rendering HTML report...")
@@ -1886,7 +1983,12 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         progress_callback(90, "Compiling PDF document via headless browser...")
 
     try:
-        convert_html_to_pdf(temp_html_path, filename)
+        try:
+            convert_html_to_pdf(temp_html_path, filename)
+        except Exception as browser_error:
+            if progress_callback:
+                progress_callback(90, "Browser PDF renderer unavailable; using fallback export...")
+            generate_pdf_fallback(filename, project_name=project_name, comment=comment, records_dict=records_dict)
         if progress_callback:
             progress_callback(100, "Completed!")
     finally:

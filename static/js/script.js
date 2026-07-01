@@ -987,6 +987,10 @@ Mail Status: Queued and Sent successfully (Simulated)`;
     // Trigger PDF download programmatically
     function triggerPdfDownload(projectName) {
         const comment = sessionStorage.getItem('pdf_comment_' + projectName) || '';
+        const exportProgressModal = document.getElementById('export-progress-modal');
+        const exportProgressBar = document.getElementById('export-progress-bar');
+        const exportProgressMessage = document.getElementById('export-progress-message');
+        const exportProgressPercent = document.getElementById('export-progress-percent');
         
         // Update Modal Title and Description for Project Export
         const progressTitle = document.getElementById('export-progress-title');
@@ -1067,6 +1071,8 @@ Mail Status: Queued and Sent successfully (Simulated)`;
             cleanupExportUI();
         });
     }
+
+    window.triggerPdfDownload = triggerPdfDownload;
 
     function appendMessage(text, sender) {
         const msg = document.createElement('div');

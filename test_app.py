@@ -2,6 +2,7 @@ import os
 import unittest
 import datetime
 import shutil
+from unittest.mock import patch
 import pandas as pd
 import app as app_module
 from app import app, ExcelDataStore, generate_pdf_report, UPLOAD_FOLDER, clean_dataframe_headers
@@ -179,6 +180,30 @@ class TestOpsDashboardBackend(unittest.TestCase):
                     os.remove(pdf_test_path)
                 except Exception:
                     pass
+
+    def test_generate_report_route_returns_pdf_for_selected_project(self):
+        """The report export route should return a downloadable PDF for the selected project."""
+        with self.app.session_transaction() as sess:
+            sess['logged_in'] = True
+            sess['username'] = 'admin'
+
+        response = self.app.get('/generate-report?project=893&comment=Test+comment')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, 'application/pdf')
+        self.assertGreater(len(response.data), 0)
+
+    def test_pdf_generation_falls_back_when_browser_conversion_fails(self):
+        """PDF generation should still succeed when the browser renderer times out."""
+        pdf_test_path = os.path.join(UPLOAD_FOLDER, "Fallback_Project_Report.pdf")
+        if os.path.exists(pdf_test_path):
+            os.remove(pdf_test_path)
+
+        with patch.object(app_module, 'convert_html_to_pdf', side_effect=RuntimeError('Headless browser timed out')):
+            generate_pdf_report(pdf_test_path, project_name="893", comment="Fallback test")
+
+        self.assertTrue(os.path.exists(pdf_test_path))
+        self.assertGreater(os.path.getsize(pdf_test_path), 0)
 
     def test_load_transformed_filters_sheets_and_columns(self):
         """Test that api_local_load_transformed only saves the selected sheets and removes specified columns."""
