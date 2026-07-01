@@ -55,14 +55,32 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Submit comment handler
+        // Export PDF handler
         if (btnSubmitComment) {
             btnSubmitComment.addEventListener('click', () => {
-                if (!currentProjectName) return;
+                if (!currentProjectName) {
+                    if (window.showToast) {
+                        window.showToast('Select a project before exporting the PDF.', 'info');
+                    }
+                    return;
+                }
+
                 const commentValue = pdfComment ? (pdfComment.value || '').trim() : '';
                 sessionStorage.setItem('pdf_comment_' + currentProjectName, commentValue);
+
+                const params = new URLSearchParams({ project: currentProjectName });
+                if (commentValue) {
+                    params.set('comment', commentValue);
+                }
+
                 if (window.showToast) {
-                    window.showToast(`Comment saved for Project ${currentProjectName}. It will be included when exporting the PDF report!`, 'success');
+                    window.showToast(`Exporting PDF for ${currentProjectName}...`, 'info');
+                }
+                if (window.triggerPdfDownload) {
+                    window.triggerPdfDownload(currentProjectName);
+                } else {
+                    const exportUrl = `/generate-report?${params.toString()}`;
+                    window.location.assign(exportUrl);
                 }
             });
         }
@@ -429,10 +447,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const raw = context.raw;
                                     const startStr = raw.x[0].toISOString().split('T')[0];
                                     const endStr = raw.x[1].toISOString().split('T')[0];
+                                    const durationDays = Math.max(1, Math.round((new Date(raw.x[1]) - new Date(raw.x[0])) / (1000 * 60 * 60 * 24)));
                                     const lines = [
                                         `Phase: ${raw.phase}`,
                                         `Start: ${startStr}`,
                                         `End: ${endStr}`,
+                                        `Duration: ${durationDays} days`,
                                         `Defects: ${raw.defects}`
                                     ];
                                     if (raw.comment) {
