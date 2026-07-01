@@ -59,11 +59,17 @@ def clean_dataframe_headers(df):
     has_sub_header = False
     sub_header_keywords = {'wk', 'week', 'day', 'qty', 'quantity', 'comment', 'method', 'number', 'start'}
     
-    for val in first_row:
-        if isinstance(val, str) and val.lower().strip() in sub_header_keywords:
-            has_sub_header = True
-            break
-            
+    # Check if headers are unnamed (e.g. starting with "Unnamed:")
+    is_unnamed = any(str(col).startswith("Unnamed:") for col in df.columns)
+    
+    if is_unnamed:
+        has_sub_header = True
+    else:
+        for val in first_row:
+            if isinstance(val, str) and val.lower().strip() in sub_header_keywords:
+                has_sub_header = True
+                break
+                
     if not has_sub_header:
         return df
         
@@ -75,9 +81,18 @@ def clean_dataframe_headers(df):
         
         if not col_str.startswith("Unnamed:"):
             current_main_header = col_str
+        else:
+            sub_lower = sub_str.lower()
+            if any(p in sub_lower for p in ['proto', 'dvt', 'evt', 'pvt', 'other']):
+                current_main_header = sub_str
             
         if current_main_header and sub_str:
-            combined = f"{current_main_header}_{sub_str}"
+            if sub_str == current_main_header:
+                combined = current_main_header
+            elif sub_str.lower().startswith(current_main_header.lower()):
+                combined = sub_str
+            else:
+                combined = f"{current_main_header}_{sub_str}"
         elif current_main_header:
             combined = current_main_header
         elif sub_str:
@@ -87,7 +102,19 @@ def clean_dataframe_headers(df):
             
         new_columns.append(combined)
         
-    df.columns = new_columns
+    # Deduplicate column names to ensure uniqueness
+    seen = {}
+    deduped_columns = []
+    for col in new_columns:
+        col_str = str(col)
+        if col_str in seen:
+            seen[col_str] += 1
+            deduped_columns.append(f"{col_str}.{seen[col_str]}")
+        else:
+            seen[col_str] = 0
+            deduped_columns.append(col_str)
+            
+    df.columns = deduped_columns
     df = df.iloc[1:].reset_index(drop=True)
     return df
 
@@ -219,21 +246,21 @@ FUZZY_RULES = {
     "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
     "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
     
-    "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1'],
-    "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1'],
-    "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto1'],
+    "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1', 'proto1_date (week)', 'proto_date (week)', 'proto1_week', 'proto_week'],
+    "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1', 'proto1_date (day)', 'proto_date (day)', 'proto1_day', 'proto_day'],
+    "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto1', 'proto1_qty', 'proto_qty'],
     
-    "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2'],
-    "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3'],
-    "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt1'],
+    "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2', 'dvt1_date (week)', 'dvt_date (week)', 'dvt1_week', 'dvt_week'],
+    "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3', 'dvt1_date (day)', 'dvt_date (day)', 'dvt1_day', 'dvt_day'],
+    "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt1', 'dvt1_qty', 'dvt_qty'],
     
-    "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4'],
-    "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5'],
-    "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt1'],
+    "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4', 'evt1_date (week)', 'evt_date (week)', 'evt1_week', 'evt_week'],
+    "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5', 'evt1_date (day)', 'evt_date (day)', 'evt1_day', 'evt_day'],
+    "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt1', 'evt1_qty', 'evt_qty'],
     
-    "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6'],
-    "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7'],
-    "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt1'],
+    "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6', 'pvt1_date (week)', 'pvt_date (week)', 'pvt1_week', 'pvt_week'],
+    "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7', 'pvt1_date (day)', 'pvt_date (day)', 'pvt1_day', 'pvt_day'],
+    "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt1', 'pvt1_qty', 'pvt_qty'],
 }
 
 class ExcelDataStore:
@@ -283,6 +310,10 @@ class ExcelDataStore:
             for field, rules in FUZZY_RULES.items():
                 for col in df.columns:
                     col_lower = str(col).lower().strip()
+                    # Skip matching week/day/qty columns as start_date
+                    if field == 'start_date' and any(x in col_lower for x in ['week', 'day', 'qty']):
+                        if 'start date' not in col_lower and col_lower != 'start' and col_lower != 'date':
+                            continue
                     if any(r == col_lower or r in col_lower for r in rules):
                         mapping[field] = col
                         break
@@ -367,12 +398,17 @@ class ExcelDataStore:
                 ])
                 
             df = sheets_data[project_name]
+            df = clean_dataframe_headers(df)
             
             # Determine mapping to write back to correct columns
             mapping = {}
             for field, rules in FUZZY_RULES.items():
                 for col in df.columns:
                     col_lower = str(col).lower().strip()
+                    # Skip matching week/day/qty columns as start_date
+                    if field == 'start_date' and any(x in col_lower for x in ['week', 'day', 'qty']):
+                        if 'start date' not in col_lower and col_lower != 'start' and col_lower != 'date':
+                            continue
                     if any(r == col_lower or r in col_lower for r in rules):
                         mapping[field] = col
                         break
@@ -448,6 +484,7 @@ class ExcelDataStore:
                 return False
                 
             df = sheets_data[project_name]
+            df = clean_dataframe_headers(df)
             if row_id < 0 or row_id >= len(df):
                 return False
                 
