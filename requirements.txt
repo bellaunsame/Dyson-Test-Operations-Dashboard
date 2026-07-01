@@ -6,7 +6,6 @@ Flask-Mail
 python-dotenv
 gunicorn
 pytest
-Flask-SQLAlchemy
 matplotlib
 msal
 Office365-REST-Python-Client

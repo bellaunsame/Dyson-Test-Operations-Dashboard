@@ -1,11 +1,15 @@
 import os
 import datetime
 import sys
+import json
+import uuid
+import threading
 from functools import wraps
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, session
-from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
+from PIL import Image as PILImage
+PILImage.MAX_IMAGE_PIXELS = None
 import matplotlib
 matplotlib.use('Agg')  # Headless mode for web servers
 import matplotlib.pyplot as plt
@@ -16,6 +20,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
 load_dotenv()
@@ -26,20 +31,13 @@ UPLOAD_FOLDER = os.path.join(app.root_path, 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 EXCEL_PATH = os.path.join(UPLOAD_FOLDER, 'tasks.xlsx')
+SYNC_CONFIG_PATH = os.path.join(UPLOAD_FOLDER, 'sync_config.json')
 
-# Configure Flask-SQLAlchemy
-is_testing = any('pytest' in arg or 'test' in arg for arg in sys.argv) or app.config.get('TESTING', False)
-if is_testing:
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-else:
-    DB_PATH = os.path.join(UPLOAD_FOLDER, 'ops_dashboard.db')
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
-
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
-with app.app_context():
-    db.create_all()
-
+# Initialize Excel file by copying template if it doesn't exist
+TEMPLATE_PATH = os.path.join(app.root_path, 'templates', 'SystemBoard.xlsx')
+if not os.path.exists(EXCEL_PATH) and os.path.exists(TEMPLATE_PATH):
+    import shutil
+    shutil.copy(TEMPLATE_PATH, EXCEL_PATH)
 
 # User authentication credentials
 USER_CREDENTIALS = {
@@ -93,98 +91,6 @@ def clean_dataframe_headers(df):
     df = df.iloc[1:].reset_index(drop=True)
     return df
 
-# --- DATABASE MODELS ---
-
-class Project(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
-    description = db.Column(db.String(200), nullable=True)
-    status = db.Column(db.String(20), default="Active")  # Active, Archived
-    created_at = db.Column(db.String(20), nullable=False)
-
-    def to_dict(self, row_count=None):
-        if row_count is None:
-            row_count = TestRecord.query.filter_by(project_name=self.name).count()
-        return {
-            "id": self.id,
-            "name": self.name,
-            "description": self.description or "",
-            "status": self.status,
-            "created_at": self.created_at,
-            "row_count": row_count
-        }
-
-class TestRecord(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    project_name = db.Column(db.String(50), nullable=False)
-    category = db.Column(db.String(100), nullable=False)
-    test_method = db.Column(db.String(100), nullable=False)
-    test_number = db.Column(db.String(50), nullable=False)
-    start_date = db.Column(db.String(10), nullable=False)
-
-    # Proto Phase
-    proto_weeks = db.Column(db.Integer, default=0)
-    proto_days = db.Column(db.Integer, default=0)
-    proto_qty = db.Column(db.Integer, default=0)
-
-    # DVT Phase
-    dvt_weeks = db.Column(db.Integer, default=0)
-    dvt_days = db.Column(db.Integer, default=0)
-    dvt_qty = db.Column(db.Integer, default=0)
-
-    # EVT Phase
-    evt_weeks = db.Column(db.Integer, default=0)
-    evt_days = db.Column(db.Integer, default=0)
-    evt_qty = db.Column(db.Integer, default=0)
-
-    # PVT Phase
-    pvt_weeks = db.Column(db.Integer, default=0)
-    pvt_days = db.Column(db.Integer, default=0)
-    pvt_qty = db.Column(db.Integer, default=0)
-
-    comments = db.Column(db.String(500), nullable=True)
-    defect_qty = db.Column(db.Integer, default=0)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "Project Name": self.project_name,
-            "Category": self.category,
-            "Test Method": self.test_method,
-            "Test Number": self.test_number,
-            "Start Date": self.start_date,
-            "Proto Weeks": self.proto_weeks,
-            "Proto Days": self.proto_days,
-            "Proto Qty": self.proto_qty,
-            "DVT Weeks": self.dvt_weeks,
-            "DVT Days": self.dvt_days,
-            "DVT Qty": self.dvt_qty,
-            "EVT Weeks": self.evt_weeks,
-            "EVT Days": self.evt_days,
-            "EVT Qty": self.evt_qty,
-            "PVT Weeks": self.pvt_weeks,
-            "PVT Days": self.pvt_days,
-            "PVT Qty": self.pvt_qty,
-            "Comments": self.comments or "",
-            "Defect Qty": self.defect_qty or 0
-        }
-
-class ExcelMapping(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    project_name = db.Column(db.String(50), unique=True, nullable=False)
-    file_path = db.Column(db.String(255), nullable=False)
-    sheet_name = db.Column(db.String(100), nullable=False)
-    mapping_json = db.Column(db.Text, nullable=False)
-
-    def to_dict(self):
-        import json
-        return {
-            "id": self.id,
-            "project_name": self.project_name,
-            "file_path": self.file_path,
-            "sheet_name": self.sheet_name,
-            "mapping": json.loads(self.mapping_json) if self.mapping_json else {}
-        }
 
 # --- SHAREPOINT SERVICE (Microsoft Graph API) ---
 try:
@@ -197,6 +103,7 @@ class TokenObject:
     def __init__(self, access_token):
         self.tokenType = "Bearer"
         self.accessToken = access_token
+
 
 class SharePointService:
     @staticmethod
@@ -221,15 +128,8 @@ class SharePointService:
         site_url = os.getenv('SHAREPOINT_SITE_URL')
         doc_lib = os.getenv('SHAREPOINT_DOC_LIB', 'Test Data')
         
-        # Fallback Mock Files if SharePoint/Graph is not configured or fails
-        mock_files = [
-            {"name": "Phase_Test_Method_Master_Data.xlsx", "path": "Phase_Test_Method_Master_Data.xlsx", "size": "11.3 KB", "modified": "2026-06-29"},
-            {"name": "Ops_Milestones_893.xlsx", "path": "Ops_Milestones_893.xlsx", "size": "45 KB", "modified": "2026-06-29"},
-            {"name": "Vacuum_990_Schedule.xlsx", "path": "Vacuum_990_Schedule.xlsx", "size": "58 KB", "modified": "2026-06-29"}
-        ]
-        
         if not client or not site_url:
-            return mock_files
+            return []
             
         try:
             site = client.sites.get_by_url(site_url)
@@ -244,7 +144,7 @@ class SharePointService:
                     break
                     
             if not target_drive:
-                return mock_files
+                return []
                 
             items = target_drive.root.children
             client.load(items)
@@ -266,10 +166,10 @@ class SharePointService:
                         "size": f"{round(item.size / 1024, 1)} KB" if hasattr(item, 'size') and item.size else "Unknown",
                         "modified": modified_str
                     })
-            return result if result else mock_files
+            return result
         except Exception as e:
             print(f"Error listing Graph files: {e}")
-            return mock_files
+            return []
 
     @staticmethod
     def download_file(filename):
@@ -279,30 +179,11 @@ class SharePointService:
         
         if not client or not site_url:
             # Fallback: check if we have a local copy in the uploads folder
-            local_mock_path = os.path.join(UPLOAD_FOLDER, filename)
-            if os.path.exists(local_mock_path):
-                with open(local_mock_path, 'rb') as f:
+            local_copy_path = os.path.join(UPLOAD_FOLDER, filename)
+            if os.path.exists(local_copy_path):
+                with open(local_copy_path, 'rb') as f:
                     return f.read()
-            # Otherwise generate a mock Excel file in memory with pandas
-            import io
-            output = io.BytesIO()
-            df = pd.DataFrame([
-                {
-                    "Test Category": "Device: Hair Dryer",
-                    "Method Name": "Stress Imaging",
-                    "Ref Number": "TM-035128",
-                    "Start": "2026-06-28",
-                    "Proto_Wk": 3, "Proto_Day": 2, "Proto_Quantity": 15,
-                    "DVT_Wk": 11, "DVT_Day": 2, "DVT_Quantity": 12,
-                    "EVT_Wk": 3, "EVT_Day": 0, "EVT_Quantity": 10,
-                    "PVT_Wk": 2, "PVT_Day": 0, "PVT_Quantity": 8,
-                    "Defective_Units": 3,
-                    "Rejections_Notes": "unit failure at 72hr soak"
-                }
-            ])
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Sheet1')
-            return output.getvalue()
+            raise FileNotFoundError(f"SharePoint client not configured and file '{filename}' not found locally.")
             
         try:
             from urllib.parse import urlparse
@@ -320,116 +201,330 @@ class SharePointService:
             return file_buffer.getvalue()
         except Exception as e:
             print(f"Error downloading Graph file: {e}")
-            import io
-            output = io.BytesIO()
-            df = pd.DataFrame([
-                {
-                    "Test Category": "Device: Hair Dryer",
-                    "Method Name": "Stress Imaging",
-                    "Ref Number": "TM-035128",
-                    "Start": "2026-06-28",
-                    "Proto_Wk": 3, "Proto_Day": 2, "Proto_Quantity": 15,
-                    "DVT_Wk": 11, "DVT_Day": 2, "DVT_Quantity": 12,
-                    "EVT_Wk": 3, "EVT_Day": 0, "EVT_Quantity": 10,
-                    "PVT_Wk": 2, "PVT_Day": 0, "PVT_Quantity": 8,
-                    "Defective_Units": 3,
-                    "Rejections_Notes": "unit failure at 72hr soak"
-                }
-            ])
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Sheet1')
-            return output.getvalue()
+            # Fallback: check if we have a local copy in the uploads folder
+            local_copy_path = os.path.join(UPLOAD_FOLDER, filename)
+            if os.path.exists(local_copy_path):
+                with open(local_copy_path, 'rb') as f:
+                    return f.read()
+            raise e
 
-# --- EXCEL DATA STORE (SQLite Wrapper) ---
+
+# --- EXCEL DATA STORE (Pure Excel Implementation) ---
+
+FUZZY_RULES = {
+    "category": ['category', 'test category', 'group', 'device', 'product'],
+    "test_method": ['method', 'test method', 'method name', 'name'],
+    "test_number": ['number', 'test number', 'test #', 'ref', 'ref number', 'code'],
+    "start_date": ['start', 'start date', 'date', 'timeline start'],
+    "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
+    "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
+    
+    "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1'],
+    "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1'],
+    "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto1'],
+    
+    "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2'],
+    "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3'],
+    "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt1'],
+    
+    "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4'],
+    "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5'],
+    "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt1'],
+    
+    "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6'],
+    "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7'],
+    "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt1'],
+}
+
 class ExcelDataStore:
     @staticmethod
-    def initialize_db():
-        """Initializes the SQLite database and migrates schema."""
-        db.create_all()
-
-        # ── Schema migration: add defect_qty column if it doesn't exist ──
+    def get_projects():
+        """Returns list of active projects (sheets in the Excel file)."""
+        if not os.path.exists(EXCEL_PATH):
+            return []
         try:
-            db.session.execute(db.text('ALTER TABLE test_record ADD COLUMN defect_qty INTEGER DEFAULT 0'))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()  # Column already exists — safe to ignore
+            with pd.ExcelFile(EXCEL_PATH) as xl:
+                projects = []
+                for sheet in xl.sheet_names:
+                    if sheet.lower().strip() == 'master data':
+                        continue
+                    try:
+                        df = xl.parse(sheet)
+                        row_count = len(df)
+                    except Exception:
+                        row_count = 0
+                    projects.append({
+                        "id": sheet,
+                        "name": sheet,
+                        "description": f"Excel Sheet: {sheet}",
+                        "status": "Active",
+                        "created_at": "N/A",
+                        "row_count": row_count
+                    })
+                return projects
+        except Exception as e:
+            print(f"Error getting projects: {e}")
+            return []
 
     @staticmethod
-    def initialize_excel():
-        ExcelDataStore.initialize_db()
+    def get_project_rows(project_name):
+        """Returns all mapped test records for a specific project/sheet."""
+        if not os.path.exists(EXCEL_PATH):
+            return []
+        try:
+            with pd.ExcelFile(EXCEL_PATH) as xl:
+                if project_name not in xl.sheet_names:
+                    return []
+                df = xl.parse(project_name)
+            df = clean_dataframe_headers(df)
+            
+            # Map columns using fuzzy rules
+            mapping = {}
+            for field, rules in FUZZY_RULES.items():
+                for col in df.columns:
+                    col_lower = str(col).lower().strip()
+                    if any(r == col_lower or r in col_lower for r in rules):
+                        mapping[field] = col
+                        break
+            
+            records = []
+            for index, row in df.iterrows():
+                def get_val(field, default=None, is_int=False):
+                    col = mapping.get(field)
+                    if not col or col not in df.columns:
+                         return default
+                    val = row[col]
+                    if pd.isna(val):
+                        return default
+                    if is_int:
+                        try:
+                            return int(float(val))
+                        except (ValueError, TypeError):
+                            return 0
+                    return str(val)
+                
+                # Parse start date
+                start_date_val = get_val("start_date", "")
+                if start_date_val:
+                    try:
+                        col_mapping = mapping.get("start_date")
+                        raw_date = row[col_mapping]
+                        if hasattr(raw_date, 'strftime'):
+                            start_date_val = raw_date.strftime('%Y-%m-%d')
+                        else:
+                            start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
+                    except Exception:
+                        start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+                else:
+                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
+                
+                records.append({
+                    "id": index,  # Use row index as unique ID
+                    "Project Name": project_name,
+                    "Category": get_val("category", "General"),
+                    "Test Method": get_val("test_method", "Testing"),
+                    "Test Number": get_val("test_number", "TM-000"),
+                    "Start Date": start_date_val,
+                    "Proto Weeks": get_val("proto_weeks", 0, is_int=True),
+                    "Proto Days": get_val("proto_days", 0, is_int=True),
+                    "Proto Qty": get_val("proto_qty", 0, is_int=True),
+                    "DVT Weeks": get_val("dvt_weeks", 0, is_int=True),
+                    "DVT Days": get_val("dvt_days", 0, is_int=True),
+                    "DVT Qty": get_val("dvt_qty", 0, is_int=True),
+                    "EVT Weeks": get_val("evt_weeks", 0, is_int=True),
+                    "EVT Days": get_val("evt_days", 0, is_int=True),
+                    "EVT Qty": get_val("evt_qty", 0, is_int=True),
+                    "PVT Weeks": get_val("pvt_weeks", 0, is_int=True),
+                    "PVT Days": get_val("pvt_days", 0, is_int=True),
+                    "PVT Qty": get_val("pvt_qty", 0, is_int=True),
+                    "Defect Qty": get_val("defect_qty", 0, is_int=True),
+                    "Comments": get_val("comments", "")
+                })
+            return records
+        except Exception as e:
+            print(f"Error getting project rows: {e}")
+            return []
 
     @staticmethod
-    def get_tasks():
-        """Compat wrapper for legacy test calls."""
-        ExcelDataStore.initialize_db()
-        return [r.to_dict() for r in TestRecord.query.all()]
-
-    @staticmethod
-    def save_task(data):
-        """Compat wrapper for legacy test calls."""
-        ExcelDataStore.initialize_db()
-        # Convert legacy/flat keys to TestRecord structure
-        record_data = {
-            "project_name": data.get("Project Name", "893"),
-            "category": data.get("Category", data.get("Product Name", "Device")),
-            "test_method": data.get("Test Method", "Testing"),
-            "test_number": data.get("Test Number", "TM-001"),
-            "start_date": data.get("Start Date", "2026-07-01"),
-            "proto_weeks": int(data.get("Proto Weeks", 0)),
-            "proto_days": int(data.get("Proto Days", 0)),
-            "proto_qty": int(data.get("Proto Qty", data.get("Qty", 0))),
-            "dvt_weeks": int(data.get("DVT Weeks", 0)),
-            "dvt_days": int(data.get("DVT Days", 0)),
-            "dvt_qty": int(data.get("DVT Qty", 0)),
-            "evt_weeks": int(data.get("EVT Weeks", 0)),
-            "evt_days": int(data.get("EVT Days", 0)),
-            "evt_qty": int(data.get("EVT Qty", 0)),
-            "pvt_weeks": int(data.get("PVT Weeks", data.get("pvt_weeks", 0))),
-            "pvt_days": int(data.get("PVT Days", 0)),
-            "pvt_qty": int(data.get("PVT Qty", 0)),
-            "comments": data.get("Comments", "")
-        }
-        
-        record_id = data.get("Product ID") # Compat ID
-        record = None
-        if record_id:
-            record = TestRecord.query.get(record_id)
-        
-        if not record:
-            record = TestRecord(**record_data)
-            db.session.add(record)
-        else:
-            for k, v in record_data.items():
-                setattr(record, k, v)
-        
-        db.session.commit()
-        return record.to_dict()
-
-    @staticmethod
-    def delete_task(record_id):
-        """Compat wrapper for legacy test calls."""
-        ExcelDataStore.initialize_db()
-        record = TestRecord.query.get(record_id)
-        if record:
-            db.session.delete(record)
-            db.session.commit()
+    def save_project_row(project_name, row_id, data):
+        """Saves (inserts or updates) a row in the specific sheet."""
+        if not os.path.exists(EXCEL_PATH):
+            return False
+        try:
+            # Load all sheets
+            with pd.ExcelFile(EXCEL_PATH) as xl:
+                sheets_data = {sheet: xl.parse(sheet) for sheet in xl.sheet_names}
+            
+            # If sheet doesn't exist, create it
+            if project_name not in sheets_data:
+                sheets_data[project_name] = pd.DataFrame(columns=[
+                    "Category", "Test Method", "Test Number", "Start Date",
+                    "Proto Weeks", "Proto Days", "Proto Qty",
+                    "DVT Weeks", "DVT Days", "DVT Qty",
+                    "EVT Weeks", "EVT Days", "EVT Qty",
+                    "PVT Weeks", "PVT Days", "PVT Qty",
+                    "Defect Qty", "Comments"
+                ])
+                
+            df = sheets_data[project_name]
+            
+            # Determine mapping to write back to correct columns
+            mapping = {}
+            for field, rules in FUZZY_RULES.items():
+                for col in df.columns:
+                    col_lower = str(col).lower().strip()
+                    if any(r == col_lower or r in col_lower for r in rules):
+                        mapping[field] = col
+                        break
+                # If column not found, use a default name
+                if field not in mapping:
+                    mapping[field] = field.replace('_', ' ').title()
+            
+            # Prepare row data
+            row_dict = {}
+            field_mappings = {
+                "category": data.get("Category", "General"),
+                "test_method": data.get("Test Method", "Testing"),
+                "test_number": data.get("Test Number", "TM-000"),
+                "start_date": data.get("Start Date", datetime.date.today().strftime('%Y-%m-%d')),
+                "proto_weeks": int(data.get("Proto Weeks", 0)),
+                "proto_days": int(data.get("Proto Days", 0)),
+                "proto_qty": int(data.get("Proto Qty", 0)),
+                "dvt_weeks": int(data.get("DVT Weeks", 0)),
+                "dvt_days": int(data.get("DVT Days", 0)),
+                "dvt_qty": int(data.get("DVT Qty", 0)),
+                "evt_weeks": int(data.get("EVT Weeks", 0)),
+                "evt_days": int(data.get("EVT Days", 0)),
+                "evt_qty": int(data.get("EVT Qty", 0)),
+                "pvt_weeks": int(data.get("PVT Weeks", 0)),
+                "pvt_days": int(data.get("PVT Days", 0)),
+                "pvt_qty": int(data.get("PVT Qty", 0)),
+                "defect_qty": int(data.get("Defect Qty", 0)),
+                "comments": data.get("Comments", "")
+            }
+            
+            for field, val in field_mappings.items():
+                col_name = mapping[field]
+                row_dict[col_name] = val
+                
+            if row_id is None or row_id < 0 or row_id >= len(df):
+                # Append new row
+                new_row = pd.DataFrame([row_dict])
+                for col in new_row.columns:
+                    if col in df.columns and isinstance(row_dict[col], str):
+                        df[col] = df[col].astype(object)
+                df = pd.concat([df, new_row], ignore_index=True)
+            else:
+                # Update existing row
+                for col_name, val in row_dict.items():
+                    if col_name not in df.columns:
+                        df[col_name] = None
+                    if isinstance(val, str) and not pd.api.types.is_object_dtype(df[col_name]):
+                        df[col_name] = df[col_name].astype(object)
+                    df.at[row_id, col_name] = val
+                    
+            sheets_data[project_name] = df
+            
+            # Write all sheets back
+            with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+                for sheet, sheet_df in sheets_data.items():
+                    sheet_df.to_excel(writer, index=False, sheet_name=sheet)
+                    
             return True
-        return False
+        except Exception as e:
+            print(f"Error saving project row: {e}")
+            return False
 
-# Initialize the database on startup (only if not testing)
-if not is_testing:
-    with app.app_context():
-        ExcelDataStore.initialize_db()
+    @staticmethod
+    def delete_project_row(project_name, row_id):
+        """Deletes a row from the specific sheet."""
+        if not os.path.exists(EXCEL_PATH):
+            return False
+        try:
+            with pd.ExcelFile(EXCEL_PATH) as xl:
+                sheets_data = {sheet: xl.parse(sheet) for sheet in xl.sheet_names}
+            
+            if project_name not in sheets_data:
+                return False
+                
+            df = sheets_data[project_name]
+            if row_id < 0 or row_id >= len(df):
+                return False
+                
+            # Drop the row
+            df = df.drop(df.index[row_id]).reset_index(drop=True)
+            sheets_data[project_name] = df
+            
+            # Write back
+            with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+                for sheet, sheet_df in sheets_data.items():
+                    sheet_df.to_excel(writer, index=False, sheet_name=sheet)
+            return True
+        except Exception as e:
+            print(f"Error deleting project row: {e}")
+            return False
 
-# Ensure DB is always ready even when Flask reloader spawns a child process
-_db_initialized = False
+    @staticmethod
+    def create_project(project_name):
+        """Creates a new sheet in the Excel file."""
+        if not os.path.exists(EXCEL_PATH):
+            try:
+                with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+                    df = pd.DataFrame(columns=["Category"])
+                    df.to_excel(writer, index=False, sheet_name=project_name)
+                return True
+            except Exception as e:
+                print(f"Error creating Excel: {e}")
+                return False
+        try:
+            with pd.ExcelFile(EXCEL_PATH) as xl:
+                sheets_data = {sheet: xl.parse(sheet) for sheet in xl.sheet_names}
+            
+            if project_name in sheets_data:
+                return False  # Already exists
+                
+            sheets_data[project_name] = pd.DataFrame(columns=[
+                "Category", "Test Method", "Test Number", "Start Date",
+                "Proto Weeks", "Proto Days", "Proto Qty",
+                "DVT Weeks", "DVT Days", "DVT Qty",
+                "EVT Weeks", "EVT Days", "EVT Qty",
+                "PVT Weeks", "PVT Days", "PVT Qty",
+                "Defect Qty", "Comments"
+            ])
+            
+            with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+                for sheet, sheet_df in sheets_data.items():
+                    sheet_df.to_excel(writer, index=False, sheet_name=sheet)
+            return True
+        except Exception as e:
+            print(f"Error creating project: {e}")
+            return False
 
-@app.before_request
-def ensure_db():
-    global _db_initialized
-    if not _db_initialized:
-        ExcelDataStore.initialize_db()
-        _db_initialized = True
+    @staticmethod
+    def delete_project(project_name):
+        """Deletes a sheet from the Excel file."""
+        if not os.path.exists(EXCEL_PATH):
+            return False
+        try:
+            with pd.ExcelFile(EXCEL_PATH) as xl:
+                sheets_data = {sheet: xl.parse(sheet) for sheet in xl.sheet_names}
+            
+            if project_name not in sheets_data:
+                return False
+                
+            del sheets_data[project_name]
+            
+            if not sheets_data:
+                sheets_data["Sheet1"] = pd.DataFrame(columns=["Category"])
+                
+            with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+                for sheet, sheet_df in sheets_data.items():
+                    sheet_df.to_excel(writer, index=False, sheet_name=sheet)
+            return True
+        except Exception as e:
+            print(f"Error deleting project: {e}")
+            return False
+
 
 # --- DECORATORS / HELPER FUNCTIONS ---
 def login_required(f):
@@ -489,10 +584,10 @@ def import_page():
 @app.route('/tables/<project_name>')
 @login_required
 def project_detail(project_name):
-    project = Project.query.filter_by(name=project_name).first()
-    if not project:
+    projects = ExcelDataStore.get_projects()
+    if not any(p["name"] == project_name for p in projects):
         return redirect(url_for('tables'))
-    return render_template('project_detail.html', project=project, username=session.get('username'), active_page='tables')
+    return render_template('project_detail.html', project={"name": project_name}, username=session.get('username'), active_page='tables')
 
 # --- API ENDPOINTS ---
 
@@ -500,17 +595,8 @@ def project_detail(project_name):
 @login_required
 def api_projects():
     if request.method == 'GET':
-        status_filter = request.args.get('status', 'Active')
-        projects = Project.query.filter_by(status=status_filter).all()
-        
-        # Single query to fetch row counts for all projects (avoys N+1 query issue)
-        counts = db.session.query(
-            TestRecord.project_name, 
-            db.func.count(TestRecord.id)
-        ).group_by(TestRecord.project_name).all()
-        counts_map = {project_name: count for project_name, count in counts}
-        
-        return jsonify([p.to_dict(row_count=counts_map.get(p.name, 0)) for p in projects])
+        projects = ExcelDataStore.get_projects()
+        return jsonify(projects)
     
     # Create project
     data = request.json
@@ -518,61 +604,76 @@ def api_projects():
         return jsonify({"error": "Project name is required"}), 400
         
     name = str(data['name']).strip()
-    if Project.query.filter_by(name=name).first():
+    if ExcelDataStore.create_project(name):
+        return jsonify({
+            "id": name,
+            "name": name,
+            "description": f"Excel Sheet: {name}",
+            "status": "Active",
+            "created_at": "N/A",
+            "row_count": 0
+        }), 201
+    else:
         return jsonify({"error": f"Project '{name}' already exists"}), 400
-        
-    today_str = datetime.date.today().strftime('%m/%d/%Y')
-    proj = Project(
-        name=name,
-        description=data.get('description', ''),
-        status='Active',
-        created_at=today_str
-    )
-    db.session.add(proj)
-    db.session.commit()
-    return jsonify(proj.to_dict(0)), 201
 
 @app.route('/api/projects/<project_name>', methods=['PUT', 'DELETE'])
 @login_required
 def api_project_detail(project_name):
-    proj = Project.query.filter_by(name=project_name).first()
-    if not proj:
+    if request.method == 'DELETE':
+        if ExcelDataStore.delete_project(project_name):
+            return jsonify({"message": f"Project {project_name} deleted successfully"})
         return jsonify({"error": "Project not found"}), 404
         
-    if request.method == 'DELETE':
-        # Delete project and its records
-        TestRecord.query.filter_by(project_name=project_name).delete()
-        db.session.delete(proj)
-        db.session.commit()
-        return jsonify({"message": f"Project {project_name} deleted successfully"})
-        
-    # Update project (Rename or Archive)
+    # Update project (Rename)
     data = request.json
     if not data:
         return jsonify({"error": "No data provided"}), 400
         
-    if 'name' in data and data['name'] != proj.name:
+    if 'name' in data and data['name'] != project_name:
         new_name = str(data['name']).strip()
-        if Project.query.filter_by(name=new_name).first():
-            return jsonify({"error": f"Project '{new_name}' already exists"}), 400
-        # Cascade update rows
-        TestRecord.query.filter_by(project_name=proj.name).update({"project_name": new_name})
-        proj.name = new_name
         
-    if 'description' in data:
-        proj.description = data['description']
-    if 'status' in data:
-        proj.status = data['status']
-        
-    db.session.commit()
-    return jsonify(proj.to_dict())
+        # Rename sheet in Excel
+        if not os.path.exists(EXCEL_PATH):
+            return jsonify({"error": "Excel file not found"}), 404
+            
+        try:
+            with pd.ExcelFile(EXCEL_PATH) as xl:
+                sheets_data = {sheet: xl.parse(sheet) for sheet in xl.sheet_names}
+            if new_name in sheets_data:
+                return jsonify({"error": f"Project '{new_name}' already exists"}), 400
+            if project_name not in sheets_data:
+                return jsonify({"error": "Project not found"}), 404
+                
+            sheets_data[new_name] = sheets_data.pop(project_name)
+            with pd.ExcelWriter(EXCEL_PATH, engine='openpyxl') as writer:
+                for sheet, sheet_df in sheets_data.items():
+                    sheet_df.to_excel(writer, index=False, sheet_name=sheet)
+            return jsonify({
+                "id": new_name,
+                "name": new_name,
+                "description": f"Excel Sheet: {new_name}",
+                "status": "Active",
+                "created_at": "N/A",
+                "row_count": len(sheets_data[new_name])
+            })
+        except Exception as e:
+            return jsonify({"error": f"Failed to rename sheet: {str(e)}"}), 500
+            
+    return jsonify({
+        "id": project_name,
+        "name": project_name,
+        "description": f"Excel Sheet: {project_name}",
+        "status": "Active",
+        "created_at": "N/A",
+        "row_count": 0
+    })
 
 @app.route('/api/projects/<project_name>/rows', methods=['GET', 'POST'])
 @login_required
 def api_project_rows(project_name):
     if request.method == 'GET':
-        records = TestRecord.query.filter_by(project_name=project_name).all()
-        return jsonify([r.to_dict() for r in records])
+        records = ExcelDataStore.get_project_rows(project_name)
+        return jsonify(records)
         
     # Add Row
     data = request.json
@@ -584,76 +685,30 @@ def api_project_rows(project_name):
         if f not in data or not str(data[f]).strip():
             return jsonify({"error": f"Field '{f}' is required"}), 400
             
-    rec = TestRecord(
-        project_name=project_name,
-        category=data["Category"],
-        test_method=data["Test Method"],
-        test_number=data["Test Number"],
-        start_date=data["Start Date"],
-        proto_weeks=int(data.get("Proto Weeks", 0)),
-        proto_days=int(data.get("Proto Days", 0)),
-        proto_qty=int(data.get("Proto Qty", 0)),
-        dvt_weeks=int(data.get("DVT Weeks", 0)),
-        dvt_days=int(data.get("DVT Days", 0)),
-        dvt_qty=int(data.get("DVT Qty", 0)),
-        evt_weeks=int(data.get("EVT Weeks", 0)),
-        evt_days=int(data.get("EVT Days", 0)),
-        evt_qty=int(data.get("EVT Qty", 0)),
-        pvt_weeks=int(data.get("PVT Weeks", 0)),
-        pvt_days=int(data.get("PVT Days", 0)),
-        pvt_qty=int(data.get("PVT Qty", 0)),
-        comments=data.get("Comments", ""),
-        defect_qty=int(data.get("Defect Qty", 0))
-    )
-    db.session.add(rec)
-    db.session.commit()
-    return jsonify(rec.to_dict()), 201
+    if ExcelDataStore.save_project_row(project_name, None, data):
+        rows = ExcelDataStore.get_project_rows(project_name)
+        return jsonify(rows[-1] if rows else {}), 201
+    return jsonify({"error": "Failed to add row"}), 500
 
 @app.route('/api/projects/<project_name>/rows/<int:row_id>', methods=['PUT', 'DELETE'])
 @login_required
 def api_project_row_detail(project_name, row_id):
-    rec = TestRecord.query.filter_by(project_name=project_name, id=row_id).first()
-    if not rec:
-        return jsonify({"error": "Row not found"}), 404
-        
     if request.method == 'DELETE':
-        db.session.delete(rec)
-        db.session.commit()
-        return jsonify({"message": "Row deleted successfully"})
+        if ExcelDataStore.delete_project_row(project_name, row_id):
+            return jsonify({"message": "Row deleted successfully"})
+        return jsonify({"error": "Row not found"}), 404
         
     # Update Row
     data = request.json
     if not data:
         return jsonify({"error": "No data provided"}), 400
         
-    rec.category = data.get("Category", rec.category)
-    rec.test_method = data.get("Test Method", rec.test_method)
-    rec.test_number = data.get("Test Number", rec.test_number)
-    rec.start_date = data.get("Start Date", rec.start_date)
-    
-    rec.proto_weeks = int(data.get("Proto Weeks", rec.proto_weeks))
-    rec.proto_days = int(data.get("Proto Days", rec.proto_days))
-    rec.proto_qty = int(data.get("Proto Qty", rec.proto_qty))
-    
-    rec.dvt_weeks = int(data.get("DVT Weeks", rec.dvt_weeks))
-    rec.dvt_days = int(data.get("DVT Days", rec.dvt_days))
-    rec.dvt_qty = int(data.get("DVT Qty", rec.dvt_qty))
-    
-    rec.evt_weeks = int(data.get("EVT Weeks", rec.evt_weeks))
-    rec.evt_days = int(data.get("EVT Days", rec.evt_days))
-    rec.evt_qty = int(data.get("EVT Qty", rec.evt_qty))
-    
-    rec.pvt_weeks = int(data.get("PVT Weeks", rec.pvt_weeks))
-    rec.pvt_days = int(data.get("PVT Days", rec.pvt_days))
-    rec.pvt_qty = int(data.get("PVT Qty", rec.pvt_qty))
-    
-    rec.comments = data.get("Comments", rec.comments)
-    rec.defect_qty = int(data.get("Defect Qty", rec.defect_qty or 0))
-    
-    db.session.commit()
-    return jsonify(rec.to_dict())
+    if ExcelDataStore.save_project_row(project_name, row_id, data):
+        rows = ExcelDataStore.get_project_rows(project_name)
+        return jsonify(rows[row_id] if row_id < len(rows) else {})
+    return jsonify({"error": "Failed to update row"}), 500
 
-# --- NEW SHAREPOINT & EXCEL COLUMN MAPPING ENDPOINTS ---
+# --- SHAREPOINT & EXCEL ENDPOINTS ---
 
 @app.route('/api/sharepoint/browse', methods=['GET'])
 @login_required
@@ -678,14 +733,14 @@ def api_sharepoint_headers():
         file_content = SharePointService.download_file(file_path)
         
         import io
-        xl = pd.ExcelFile(io.BytesIO(file_content))
-        sheets = xl.sheet_names
-        
-        if not sheets:
-            return jsonify({"error": "No worksheets found in the Excel file"}), 400
+        with pd.ExcelFile(io.BytesIO(file_content)) as xl:
+            sheets = xl.sheet_names
             
-        # Parse headers from the first sheet
-        df = xl.parse(sheets[0], nrows=5)
+            if not sheets:
+                return jsonify({"error": "No worksheets found in the Excel file"}), 400
+                
+            # Parse headers from the first sheet
+            df = xl.parse(sheets[0], nrows=5)
         df = clean_dataframe_headers(df)
         headers = [str(col) for col in df.columns.tolist()]
         
@@ -701,303 +756,63 @@ def api_sharepoint_headers():
 @app.route('/api/sharepoint/sync', methods=['POST'])
 @login_required
 def api_sharepoint_sync():
-    """Saves the global column mapping and imports the Excel data from EACH sheet as a separate project."""
-    import json
+    """Downloads the Excel file from SharePoint and saves it as the active Excel data file."""
     data = request.json
-    if not data or 'file_path' not in data or 'mapping' not in data:
-        return jsonify({"error": "Missing required mapping configuration"}), 400
+    if not data or 'file_path' not in data:
+        return jsonify({"error": "Missing file_path"}), 400
         
     file_path = data['file_path']
-    mapping = data['mapping']
-    
     try:
-        # Save or update global ExcelMapping in database
-        existing_mapping = ExcelMapping.query.filter_by(project_name='GLOBAL_SYNC').first()
-        if existing_mapping:
-            existing_mapping.file_path = file_path
-            existing_mapping.sheet_name = 'ALL_SHEETS'
-            existing_mapping.mapping_json = json.dumps(mapping)
-        else:
-            new_mapping = ExcelMapping(
-                project_name='GLOBAL_SYNC',
-                file_path=file_path,
-                sheet_name='ALL_SHEETS',
-                mapping_json=json.dumps(mapping)
-            )
-            db.session.add(new_mapping)
-        db.session.commit()
-            
-        # Download and parse Excel file
         file_content = SharePointService.download_file(file_path)
-        
-        import io
-        xl = pd.ExcelFile(io.BytesIO(file_content))
-        all_sheets = xl.sheet_names
-        
-        synced_projects = []
-        total_records_imported = 0
-        
-        for sheet_name in all_sheets:
-            # Skip "Master Data" sheet (case-insensitive)
-            if sheet_name.lower().strip() == 'master data':
-                continue
-                
-            # Create or find Project
-            proj = Project.query.filter_by(name=sheet_name).first()
-            if not proj:
-                proj = Project(
-                    name=sheet_name,
-                    description=f"Imported from SharePoint sheet {sheet_name}",
-                    status="Active",
-                    created_at=datetime.date.today().strftime('%m/%d/%Y')
-                )
-                db.session.add(proj)
-                db.session.commit()
-                
-            # Clear existing test records for this project
-            TestRecord.query.filter_by(project_name=sheet_name).delete()
+        with open(EXCEL_PATH, 'wb') as f:
+            f.write(file_content)
             
-            # Parse worksheet
-            df = xl.parse(sheet_name)
-            df = clean_dataframe_headers(df)
+        # Save sync configuration
+        with open(SYNC_CONFIG_PATH, 'w') as f:
+            json.dump({"file_path": file_path}, f)
             
-            imported_count = 0
-            for index, row in df.iterrows():
-                def get_val(field, default=None, is_int=False):
-                    col = mapping.get(field)
-                    if not col or col not in df.columns:
-                         return default
-                    val = row[col]
-                    if pd.isna(val):
-                        return default
-                    if is_int:
-                        try:
-                            return int(float(val))
-                        except ValueError:
-                            return 0
-                    return str(val)
-                    
-                # Parse start date
-                start_date_val = get_val("Start Date", "")
-                if start_date_val:
-                    try:
-                        col_mapping = mapping.get("Start Date")
-                        raw_date = row[col_mapping]
-                        if hasattr(raw_date, 'strftime'):
-                            start_date_val = raw_date.strftime('%Y-%m-%d')
-                        else:
-                            start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
-                    except Exception:
-                        start_date_val = datetime.date.today().strftime('%Y-%m-%d')
-                else:
-                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
-    
-                rec = TestRecord(
-                    project_name=sheet_name,
-                    category=get_val("Category", "General"),
-                    test_method=get_val("Test Method", "Testing"),
-                    test_number=get_val("Test Number", "TM-000"),
-                    start_date=start_date_val,
-                    
-                    proto_weeks=get_val("Proto Weeks", 0, is_int=True),
-                    proto_days=get_val("Proto Days", 0, is_int=True),
-                    proto_qty=get_val("Proto Qty", 0, is_int=True),
-                    
-                    dvt_weeks=get_val("DVT Weeks", 0, is_int=True),
-                    dvt_days=get_val("DVT Days", 0, is_int=True),
-                    dvt_qty=get_val("DVT Qty", 0, is_int=True),
-                    
-                    evt_weeks=get_val("EVT Weeks", 0, is_int=True),
-                    evt_days=get_val("EVT Days", 0, is_int=True),
-                    evt_qty=get_val("EVT Qty", 0, is_int=True),
-                    
-                    pvt_weeks=get_val("PVT Weeks", 0, is_int=True),
-                    pvt_days=get_val("PVT Days", 0, is_int=True),
-                    pvt_qty=get_val("PVT Qty", 0, is_int=True),
-                    
-                    defect_qty=get_val("Defect Qty", 0, is_int=True),
-                    comments=get_val("Comments", "")
-                )
-                db.session.add(rec)
-                imported_count += 1
-                
-            total_records_imported += imported_count
-            synced_projects.append(sheet_name)
-            
-        db.session.commit()
+        projects = ExcelDataStore.get_projects()
+        total_records = sum(p["row_count"] for p in projects)
         return jsonify({
             "success": True,
-            "message": f"Successfully synced {len(synced_projects)} projects with {total_records_imported} records.",
-            "projects": synced_projects,
-            "count": total_records_imported
+            "message": f"Successfully synced with SharePoint Excel file. Loaded {len(projects)} sheets and {total_records} records.",
+            "projects": [p["name"] for p in projects],
+            "count": total_records
         })
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Failed to sync SharePoint Excel sheets: {str(e)}"}), 500
+        return jsonify({"error": f"Failed to sync SharePoint Excel: {str(e)}"}), 500
 
 @app.route('/api/sync-sharepoint', methods=['POST'])
 @login_required
 def sync_sharepoint():
-    """Triggers a real sync of all Excel sheets from SharePoint using the saved global configuration."""
-    import json
-    # Get saved global mapping
-    mapping_record = ExcelMapping.query.filter_by(project_name='GLOBAL_SYNC').first()
-    if not mapping_record:
+    """Triggers a sync of the Excel file from SharePoint using the saved configuration."""
+    if not os.path.exists(SYNC_CONFIG_PATH):
         return jsonify({
             "success": False,
-            "error": "No saved column mapping. Please configure the columns first using the SharePoint Extractor in the sidebar."
+            "error": "No saved sync configuration. Please configure the file first using the SharePoint Extractor in the sidebar."
         }), 400
         
-    file_path = mapping_record.file_path
-    config = json.loads(mapping_record.mapping_json) if mapping_record.mapping_json else {}
-    selected_sheets = config.get("selected_sheets", [])
-    removed_cols_map = config.get("removed_columns", {})
-    
     try:
+        with open(SYNC_CONFIG_PATH, 'r') as f:
+            config = json.load(f)
+        file_path = config.get("file_path")
+        if not file_path:
+            return jsonify({"success": False, "error": "Invalid sync configuration."}), 400
+            
         file_content = SharePointService.download_file(file_path)
-        
-        import io
-        xl = pd.ExcelFile(io.BytesIO(file_content))
-        
-        synced_projects = []
-        total_records_imported = 0
-        
-        for sheet_name in selected_sheets:
-            if sheet_name not in xl.sheet_names:
-                continue
-                
-            # Parse sheet
-            df = xl.parse(sheet_name)
-            df = clean_dataframe_headers(df)
+        with open(EXCEL_PATH, 'wb') as f:
+            f.write(file_content)
             
-            # Filter out removed columns
-            removed_cols = removed_cols_map.get(sheet_name, [])
-            active_cols = [col for col in df.columns if str(col) not in removed_cols]
-            
-            # Perform automatic fuzzy mapping on remaining columns
-            mapping = {}
-            fuzzy_rules = {
-                "category": ['category', 'test category', 'group', 'device', 'product'],
-                "test_method": ['method', 'test method', 'method name', 'name'],
-                "test_number": ['number', 'test number', 'test #', 'ref', 'ref number', 'code'],
-                "start_date": ['start', 'start date', 'date', 'timeline start'],
-                "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
-                "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
-                
-                "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1'],
-                "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1'],
-                "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto_qty', 'proto1'],
-                
-                "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2'],
-                "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3'],
-                "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt_qty', 'dvt1'],
-                
-                "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4'],
-                "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5'],
-                "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt_qty', 'evt1'],
-                
-                "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6'],
-                "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7'],
-                "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt_qty', 'pvt1'],
-            }
-            
-            for field, rules in fuzzy_rules.items():
-                for col in active_cols:
-                    col_lower = str(col).lower().strip()
-                    if any(r == col_lower or r in col_lower for r in rules):
-                        mapping[field] = str(col)
-                        break
-                        
-            # Create or find Project
-            proj = Project.query.filter_by(name=sheet_name).first()
-            if not proj:
-                proj = Project(
-                    name=sheet_name,
-                    description=f"Imported from SharePoint sheet {sheet_name}",
-                    status="Active",
-                    created_at=datetime.date.today().strftime('%m/%d/%Y')
-                )
-                db.session.add(proj)
-                db.session.commit()
-                
-            # Clear existing test records for this project
-            TestRecord.query.filter_by(project_name=sheet_name).delete()
-            
-            imported_count = 0
-            for index, row in df.iterrows():
-                def get_val(field, default=None, is_int=False):
-                    col = mapping.get(field)
-                    if not col or col not in df.columns:
-                         return default
-                    val = row[col]
-                    if pd.isna(val):
-                        return default
-                    if is_int:
-                        try:
-                            return int(float(val))
-                        except ValueError:
-                            return 0
-                    return str(val)
-                    
-                # Parse start date
-                start_date_val = get_val("start_date", "")
-                if start_date_val:
-                    try:
-                        col_mapping = mapping.get("start_date")
-                        raw_date = row[col_mapping]
-                        if hasattr(raw_date, 'strftime'):
-                            start_date_val = raw_date.strftime('%Y-%m-%d')
-                        else:
-                            start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
-                    except Exception:
-                        start_date_val = datetime.date.today().strftime('%Y-%m-%d')
-                else:
-                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
-    
-                rec = TestRecord(
-                    project_name=sheet_name,
-                    category=get_val("category", "General"),
-                    test_method=get_val("test_method", "Testing"),
-                    test_number=get_val("test_number", "TM-000"),
-                    start_date=start_date_val,
-                    
-                    proto_weeks=get_val("proto_weeks", 0, is_int=True),
-                    proto_days=get_val("proto_days", 0, is_int=True),
-                    proto_qty=get_val("proto_qty", 0, is_int=True),
-                    
-                    dvt_weeks=get_val("dvt_weeks", 0, is_int=True),
-                    dvt_days=get_val("dvt_days", 0, is_int=True),
-                    dvt_qty=get_val("dvt_qty", 0, is_int=True),
-                    
-                    evt_weeks=get_val("evt_weeks", 0, is_int=True),
-                    evt_days=get_val("evt_days", 0, is_int=True),
-                    evt_qty=get_val("evt_qty", 0, is_int=True),
-                    
-                    pvt_weeks=get_val("pvt_weeks", 0, is_int=True),
-                    pvt_days=get_val("pvt_days", 0, is_int=True),
-                    pvt_qty=get_val("pvt_qty", 0, is_int=True),
-                    
-                    defect_qty=get_val("defect_qty", 0, is_int=True),
-                    comments=get_val("comments", "")
-                )
-                db.session.add(rec)
-                imported_count += 1
-                
-            total_records_imported += imported_count
-            synced_projects.append(sheet_name)
-            
-        db.session.commit()
+        projects = ExcelDataStore.get_projects()
+        total_records = sum(p["row_count"] for p in projects)
         return jsonify({
             "success": True,
-            "message": f"SharePoint sync complete — synced {len(synced_projects)} projects with {total_records_imported} records.",
-            "projects": synced_projects,
-            "count": total_records_imported
+            "message": f"SharePoint sync complete — synced {len(projects)} projects with {total_records} records.",
+            "projects": [p["name"] for p in projects],
+            "count": total_records
         })
     except Exception as e:
-        db.session.rollback()
         return jsonify({"success": False, "error": f"Failed to sync SharePoint Excel: {str(e)}"}), 500
-
-# --- LOCAL FILE UPLOAD ENDPOINT ---
 
 @app.route('/api/local/preview-all', methods=['POST'])
 @login_required
@@ -1017,32 +832,33 @@ def api_local_preview_all():
     try:
         import io
         file_bytes = uploaded_file.read()
-        xl = pd.ExcelFile(io.BytesIO(file_bytes))
-        sheets = xl.sheet_names
-
+        
         result = {}
-        for sheet in sheets:
-            if sheet.lower().strip() == 'master data':
-                continue
+        with pd.ExcelFile(io.BytesIO(file_bytes)) as xl:
+            sheets = xl.sheet_names
 
-            df = xl.parse(sheet, nrows=100)
-            df = clean_dataframe_headers(df)
-            columns = [str(col) for col in df.columns.tolist()]
+            for sheet in sheets:
+                if sheet.lower().strip() == 'master data':
+                    continue
 
-            rows = []
-            for _, row in df.iterrows():
-                row_vals = []
-                for val in row.tolist():
-                    if pd.isna(val):
-                        row_vals.append("")
-                    else:
-                        if isinstance(val, (datetime.date, datetime.datetime)):
-                            row_vals.append(val.strftime('%Y-%m-%d'))
+                df = xl.parse(sheet, nrows=100)
+                df = clean_dataframe_headers(df)
+                columns = [str(col) for col in df.columns.tolist()]
+
+                rows = []
+                for _, row in df.iterrows():
+                    row_vals = []
+                    for val in row.tolist():
+                        if pd.isna(val):
+                            row_vals.append("")
                         else:
-                            row_vals.append(val)
-                rows.append(row_vals)
+                            if isinstance(val, (datetime.date, datetime.datetime)):
+                                row_vals.append(val.strftime('%Y-%m-%d'))
+                            else:
+                                row_vals.append(val)
+                    rows.append(row_vals)
 
-            result[sheet] = {"columns": columns, "rows": rows}
+                result[sheet] = {"columns": columns, "rows": rows}
 
         return jsonify({
             "success": True,
@@ -1053,153 +869,10 @@ def api_local_preview_all():
     except Exception as e:
         return jsonify({"error": f"Failed to parse Excel file: {str(e)}"}), 500
 
-
-# --- SHARED TRANSFORMATION HELPER ---
-
-def _import_sheets_to_db(xl, selected_sheets, removed_cols_map, file_path):
-    """
-    Core transformation helper. Given a pd.ExcelFile, list of selected sheet names,
-    a dict of removed columns per sheet, and the original file_path string,
-    this function creates/updates Project records and imports TestRecord rows.
-    Returns (synced_projects, total_records_imported).
-    """
-    fuzzy_rules = {
-        "category": ['category', 'test category', 'group', 'device', 'product'],
-        "test_method": ['method', 'test method', 'method name', 'name'],
-        "test_number": ['number', 'test number', 'test #', 'ref', 'ref number', 'code'],
-        "start_date": ['start', 'start date', 'date', 'timeline start'],
-        "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
-        "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
-        "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1'],
-        "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1'],
-        "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto1'],
-        "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2'],
-        "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3'],
-        "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt1'],
-        "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4'],
-        "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5'],
-        "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt1'],
-        "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6'],
-        "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7'],
-        "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt1'],
-    }
-
-    synced_projects = []
-    total_records_imported = 0
-
-    for sheet_name in selected_sheets:
-        if sheet_name not in xl.sheet_names:
-            continue
-
-        df = xl.parse(sheet_name)
-        df = clean_dataframe_headers(df)
-        removed_cols = removed_cols_map.get(sheet_name, [])
-        active_cols = [col for col in df.columns if str(col) not in removed_cols]
-
-        # Auto fuzzy mapping
-        mapping = {}
-        for field, rules in fuzzy_rules.items():
-            for col in active_cols:
-                col_lower = str(col).lower().strip()
-                if any(r == col_lower or r in col_lower for r in rules):
-                    mapping[field] = str(col)
-                    break
-
-        # Upsert Project
-        proj = Project.query.filter_by(name=sheet_name).first()
-        if not proj:
-            proj = Project(
-                name=sheet_name,
-                description=f"Imported from {file_path}",
-                status="Active",
-                created_at=datetime.date.today().strftime('%m/%d/%Y')
-            )
-            db.session.add(proj)
-        else:
-            proj.description = f"Imported from {file_path}"
-        db.session.commit()
-
-        # Clear and reimport rows
-        TestRecord.query.filter_by(project_name=sheet_name).delete()
-
-        imported_count = 0
-        for index, row in df.iterrows():
-            def get_val(field, default=None, is_int=False):
-                col = mapping.get(field)
-                if not col or col not in df.columns:
-                    return default
-                val = row[col]
-                if pd.isna(val):
-                    return default
-                if is_int:
-                    try:
-                        return int(float(val))
-                    except (ValueError, TypeError):
-                        return 0
-                return str(val)
-
-            start_date_val = get_val("start_date", "")
-            if start_date_val:
-                try:
-                    col_mapping = mapping.get("start_date")
-                    raw_date = row[col_mapping]
-                    if hasattr(raw_date, 'strftime'):
-                        start_date_val = raw_date.strftime('%Y-%m-%d')
-                    else:
-                        start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
-                except Exception:
-                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
-            else:
-                start_date_val = datetime.date.today().strftime('%Y-%m-%d')
-
-            rec = TestRecord(
-                project_name=sheet_name,
-                category=get_val("category", "General"),
-                test_method=get_val("test_method", "Testing"),
-                test_number=get_val("test_number", "TM-000"),
-                start_date=start_date_val,
-                proto_weeks=get_val("proto_weeks", 0, is_int=True),
-                proto_days=get_val("proto_days", 0, is_int=True),
-                proto_qty=get_val("proto_qty", 0, is_int=True),
-                dvt_weeks=get_val("dvt_weeks", 0, is_int=True),
-                dvt_days=get_val("dvt_days", 0, is_int=True),
-                dvt_qty=get_val("dvt_qty", 0, is_int=True),
-                evt_weeks=get_val("evt_weeks", 0, is_int=True),
-                evt_days=get_val("evt_days", 0, is_int=True),
-                evt_qty=get_val("evt_qty", 0, is_int=True),
-                pvt_weeks=get_val("pvt_weeks", 0, is_int=True),
-                pvt_days=get_val("pvt_days", 0, is_int=True),
-                pvt_qty=get_val("pvt_qty", 0, is_int=True),
-                defect_qty=get_val("defect_qty", 0, is_int=True),
-                comments=get_val("comments", "")
-            )
-            db.session.add(rec)
-            imported_count += 1
-
-        total_records_imported += imported_count
-        synced_projects.append(sheet_name)
-
-    # Save global sync config
-    import json as _json
-    mapping_record = ExcelMapping.query.filter_by(project_name='GLOBAL_SYNC').first()
-    if not mapping_record:
-        mapping_record = ExcelMapping(project_name='GLOBAL_SYNC')
-        db.session.add(mapping_record)
-    mapping_record.file_path = file_path
-    mapping_record.sheet_name = 'ALL'
-    mapping_record.mapping_json = _json.dumps({
-        "selected_sheets": selected_sheets,
-        "removed_columns": removed_cols_map
-    })
-    db.session.commit()
-
-    return synced_projects, total_records_imported
-
-
 @app.route('/api/local/load-transformed', methods=['POST'])
 @login_required
 def api_local_load_transformed():
-    """Imports selected sheets from a locally uploaded Excel file into the Project Table."""
+    """Imports a locally uploaded Excel file as the active Excel data store."""
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
 
@@ -1211,41 +884,23 @@ def api_local_load_transformed():
     if not filename.lower().endswith(('.xlsx', '.xls')):
         return jsonify({"error": "Only Excel files (.xlsx, .xls) are supported"}), 400
 
-    import json as _json
-    import io
-    config_raw = request.form.get('config', '{}')
     try:
-        config = _json.loads(config_raw)
-    except Exception:
-        config = {}
-
-    selected_sheets = config.get('selected_sheets', [])
-    removed_cols_map = config.get('removed_columns', {})
-
-    try:
-        file_bytes = uploaded_file.read()
-        xl = pd.ExcelFile(io.BytesIO(file_bytes))
-
-        if not selected_sheets:
-            # Default to all non-master sheets
-            selected_sheets = [s for s in xl.sheet_names if s.lower().strip() != 'master data']
-
-        synced_projects, total_records = _import_sheets_to_db(
-            xl, selected_sheets, removed_cols_map, f"local://{filename}"
-        )
-
+        uploaded_file.save(EXCEL_PATH)
+        
+        # Save local configuration
+        with open(SYNC_CONFIG_PATH, 'w') as f:
+            json.dump({"file_path": f"local://{filename}"}, f)
+            
+        projects = ExcelDataStore.get_projects()
+        total_records = sum(p["row_count"] for p in projects)
         return jsonify({
             "success": True,
-            "message": f"Successfully imported {len(synced_projects)} project(s) with {total_records} records from {filename}.",
-            "projects": synced_projects,
+            "message": f"Successfully imported {len(projects)} project(s) with {total_records} records from {filename}.",
+            "projects": [p["name"] for p in projects],
             "count": total_records
         })
     except Exception as e:
-        db.session.rollback()
         return jsonify({"error": f"Failed to import local file: {str(e)}"}), 500
-
-
-# --- POWER BI NAVIGATOR & QUERY EDITOR VIEWS ---
 
 @app.route('/api/sharepoint/preview-all', methods=['POST'])
 @login_required
@@ -1260,39 +915,36 @@ def api_sharepoint_preview_all():
         file_content = SharePointService.download_file(file_path)
         
         import io
-        xl = pd.ExcelFile(io.BytesIO(file_content))
-        sheets = xl.sheet_names
-        
         result = {}
-        for sheet in sheets:
-            # Skip "Master Data" sheet (case-insensitive)
-            if sheet.lower().strip() == 'master data':
-                continue
+        with pd.ExcelFile(io.BytesIO(file_content)) as xl:
+            sheets = xl.sheet_names
+            
+            for sheet in sheets:
+                if sheet.lower().strip() == 'master data':
+                    continue
+                    
+                df = xl.parse(sheet, nrows=100)
+                df = clean_dataframe_headers(df)
                 
-            df = xl.parse(sheet, nrows=100)
-            df = clean_dataframe_headers(df)
-            
-            # Convert all column names to string
-            columns = [str(col) for col in df.columns.tolist()]
-            
-            # Convert rows to list of lists (handling NaN)
-            rows = []
-            for _, row in df.iterrows():
-                row_vals = []
-                for val in row.tolist():
-                    if pd.isna(val):
-                        row_vals.append("")
-                    else:
-                        if isinstance(val, (datetime.date, datetime.datetime)):
-                            row_vals.append(val.strftime('%Y-%m-%d'))
+                columns = [str(col) for col in df.columns.tolist()]
+                
+                rows = []
+                for _, row in df.iterrows():
+                    row_vals = []
+                    for val in row.tolist():
+                        if pd.isna(val):
+                            row_vals.append("")
                         else:
-                            row_vals.append(val)
-                rows.append(row_vals)
-                
-            result[sheet] = {
-                "columns": columns,
-                "rows": rows
-            }
+                            if isinstance(val, (datetime.date, datetime.datetime)):
+                                row_vals.append(val.strftime('%Y-%m-%d'))
+                            else:
+                                row_vals.append(val)
+                    rows.append(row_vals)
+                    
+                result[sheet] = {
+                    "columns": columns,
+                    "rows": rows
+                }
             
         return jsonify({
             "success": True,
@@ -1305,170 +957,30 @@ def api_sharepoint_preview_all():
 @app.route('/api/sharepoint/load-transformed', methods=['POST'])
 @login_required
 def api_sharepoint_load_transformed():
-    """Imports selected sheets from Excel, applying column removals and automatic fuzzy mapping."""
+    """Imports selected sheets from SharePoint Excel file as the active Excel data store."""
     data = request.json
-    if not data or 'file_path' not in data or 'selected_sheets' not in data:
+    if not data or 'file_path' not in data:
         return jsonify({"error": "Missing required configuration"}), 400
         
     file_path = data['file_path']
-    selected_sheets = data['selected_sheets']
-    removed_cols_map = data.get('removed_columns', {}) # dict of sheet_name -> list of removed cols
-    
     try:
         file_content = SharePointService.download_file(file_path)
-        
-        import io
-        xl = pd.ExcelFile(io.BytesIO(file_content))
-        
-        synced_projects = []
-        total_records_imported = 0
-        
-        for sheet_name in selected_sheets:
-            if sheet_name not in xl.sheet_names:
-                continue
-                
-            # Parse sheet
-            df = xl.parse(sheet_name)
-            df = clean_dataframe_headers(df)
+        with open(EXCEL_PATH, 'wb') as f:
+            f.write(file_content)
             
-            # Filter out removed columns
-            removed_cols = removed_cols_map.get(sheet_name, [])
-            active_cols = [col for col in df.columns if str(col) not in removed_cols]
+        # Save sync configuration
+        with open(SYNC_CONFIG_PATH, 'w') as f:
+            json.dump({"file_path": file_path}, f)
             
-            # Perform automatic fuzzy mapping on remaining columns
-            mapping = {}
-            fuzzy_rules = {
-                "category": ['category', 'test category', 'group', 'device', 'product'],
-                "test_method": ['method', 'test method', 'method name', 'name'],
-                "test_number": ['number', 'test number', 'test #', 'ref', 'ref number', 'code'],
-                "start_date": ['start', 'start date', 'date', 'timeline start'],
-                "defect_qty": ['defect', 'defect qty', 'defective', 'defects', 'defect quantity', 'defective units'],
-                "comments": ['comments', 'rejections', 'notes', 'rejection comment/s', 'comment'],
-                
-                "proto_weeks": ['proto wk', 'proto week', 'proto_wk', 'proto_weeks', 'proto weeks', 'week1'],
-                "proto_days": ['proto day', 'proto_day', 'proto_days', 'proto days', 'day1'],
-                "proto_qty": ['proto qty', 'proto_qty', 'proto_quantity', 'proto quantity', 'proto_qty', 'proto1'],
-                
-                "dvt_weeks": ['dvt wk', 'dvt week', 'dvt_wk', 'dvt_weeks', 'dvt weeks', 'week2'],
-                "dvt_days": ['dvt day', 'dvt_day', 'dvt_days', 'dvt days', 'day3'],
-                "dvt_qty": ['dvt qty', 'dvt_qty', 'dvt_quantity', 'dvt quantity', 'dvt_qty', 'dvt1'],
-                
-                "evt_weeks": ['evt wk', 'evt week', 'evt_wk', 'evt_weeks', 'evt weeks', 'week4'],
-                "evt_days": ['evt day', 'evt_day', 'evt_days', 'evt days', 'day5'],
-                "evt_qty": ['evt qty', 'evt_qty', 'evt_quantity', 'evt quantity', 'evt_qty', 'evt1'],
-                
-                "pvt_weeks": ['pvt wk', 'pvt week', 'pvt_wk', 'pvt_weeks', 'pvt weeks', 'week6'],
-                "pvt_days": ['pvt day', 'pvt_day', 'pvt_days', 'pvt days', 'day7'],
-                "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt_qty', 'pvt1'],
-            }
-            
-            for field, rules in fuzzy_rules.items():
-                for col in active_cols:
-                    col_lower = str(col).lower().strip()
-                    if any(r == col_lower or r in col_lower for r in rules):
-                        mapping[field] = str(col)
-                        break
-                        
-            # Create or find Project
-            proj = Project.query.filter_by(name=sheet_name).first()
-            if not proj:
-                proj = Project(
-                    name=sheet_name,
-                    description=f"Imported from SharePoint sheet {sheet_name}",
-                    status="Active",
-                    created_at=datetime.date.today().strftime('%m/%d/%Y')
-                )
-                db.session.add(proj)
-                db.session.commit()
-                
-            # Clear existing test records for this project
-            TestRecord.query.filter_by(project_name=sheet_name).delete()
-            
-            imported_count = 0
-            for index, row in df.iterrows():
-                def get_val(field, default=None, is_int=False):
-                    col = mapping.get(field)
-                    if not col or col not in df.columns:
-                         return default
-                    val = row[col]
-                    if pd.isna(val):
-                        return default
-                    if is_int:
-                        try:
-                            return int(float(val))
-                        except ValueError:
-                            return 0
-                    return str(val)
-                    
-                # Parse start date
-                start_date_val = get_val("start_date", "")
-                if start_date_val:
-                    try:
-                        col_mapping = mapping.get("start_date")
-                        raw_date = row[col_mapping]
-                        if hasattr(raw_date, 'strftime'):
-                            start_date_val = raw_date.strftime('%Y-%m-%d')
-                        else:
-                            start_date_val = pd.to_datetime(start_date_val).strftime('%Y-%m-%d')
-                    except Exception:
-                        start_date_val = datetime.date.today().strftime('%Y-%m-%d')
-                else:
-                    start_date_val = datetime.date.today().strftime('%Y-%m-%d')
-    
-                rec = TestRecord(
-                    project_name=sheet_name,
-                    category=get_val("category", "General"),
-                    test_method=get_val("test_method", "Testing"),
-                    test_number=get_val("test_number", "TM-000"),
-                    start_date=start_date_val,
-                    
-                    proto_weeks=get_val("proto_weeks", 0, is_int=True),
-                    proto_days=get_val("proto_days", 0, is_int=True),
-                    proto_qty=get_val("proto_qty", 0, is_int=True),
-                    
-                    dvt_weeks=get_val("dvt_weeks", 0, is_int=True),
-                    dvt_days=get_val("dvt_days", 0, is_int=True),
-                    dvt_qty=get_val("dvt_qty", 0, is_int=True),
-                    
-                    evt_weeks=get_val("evt_weeks", 0, is_int=True),
-                    evt_days=get_val("evt_days", 0, is_int=True),
-                    evt_qty=get_val("evt_qty", 0, is_int=True),
-                    
-                    pvt_weeks=get_val("pvt_weeks", 0, is_int=True),
-                    pvt_days=get_val("pvt_days", 0, is_int=True),
-                    pvt_qty=get_val("pvt_qty", 0, is_int=True),
-                    
-                    defect_qty=get_val("defect_qty", 0, is_int=True),
-                    comments=get_val("comments", "")
-                )
-                db.session.add(rec)
-                imported_count += 1
-                
-            total_records_imported += imported_count
-            synced_projects.append(sheet_name)
-            
-        # Save global sync configuration
-        import json
-        mapping_record = ExcelMapping.query.filter_by(project_name='GLOBAL_SYNC').first()
-        if not mapping_record:
-            mapping_record = ExcelMapping(project_name='GLOBAL_SYNC')
-            db.session.add(mapping_record)
-        mapping_record.file_path = file_path
-        mapping_record.sheet_name = 'ALL'
-        mapping_record.mapping_json = json.dumps({
-            "selected_sheets": selected_sheets,
-            "removed_columns": removed_cols_map
-        })
-        
-        db.session.commit()
+        projects = ExcelDataStore.get_projects()
+        total_records = sum(p["row_count"] for p in projects)
         return jsonify({
             "success": True,
-            "message": f"Successfully loaded and transformed {len(synced_projects)} projects with {total_records_imported} records.",
-            "projects": synced_projects,
-            "count": total_records_imported
+            "message": f"Successfully loaded and transformed {len(projects)} projects with {total_records} records.",
+            "projects": [p["name"] for p in projects],
+            "count": total_records
         })
     except Exception as e:
-        db.session.rollback()
         return jsonify({"error": f"Failed to load transformed data: {str(e)}"}), 500
 
 
@@ -1485,8 +997,8 @@ def api_chat():
     context_project = data.get('project', None)
 
     # Gather all projects for context
-    all_projects = Project.query.filter_by(status='Active').all()
-    all_project_names = [p.name for p in all_projects]
+    all_projects = ExcelDataStore.get_projects()
+    all_project_names = [p["name"] for p in all_projects]
 
     # --- Intent: List all projects ---
     if any(kw in query for kw in ['list projects', 'all projects', 'show projects', 'what projects']):
@@ -1518,18 +1030,15 @@ def api_chat():
     # --- Intent: Summarize a project ---
     summary_keywords = ['summary', 'summarize', 'overview', 'status', 'how many', 'records', 'rows', 'test methods', 'details']
     if any(kw in query for kw in summary_keywords) and target_project:
-        records = TestRecord.query.filter_by(project_name=target_project).all()
+        records = ExcelDataStore.get_project_rows(target_project)
         total_qty = sum(
-            (r.proto_qty or 0) + (r.dvt_qty or 0) + (r.evt_qty or 0) + (r.pvt_qty or 0)
+            (r.get("Proto Qty") or 0) + (r.get("DVT Qty") or 0) + (r.get("EVT Qty") or 0) + (r.get("PVT Qty") or 0)
             for r in records
         )
-        rejections = [r for r in records if r.comments and r.comments.strip()]
-        proj_obj = Project.query.filter_by(name=target_project).first()
-        desc = proj_obj.description if proj_obj and proj_obj.description else 'No description'
+        rejections = [r for r in records if r.get("Comments") and str(r.get("Comments")).strip()]
 
         response = (
             f"📊 **Project {target_project} Summary**\n"
-            f"Description: {desc}\n"
             f"Test Records: {len(records)}\n"
             f"Total Qty across all phases: {total_qty}\n"
             f"Records with rejections: {len(rejections)}\n"
@@ -1537,15 +1046,20 @@ def api_chat():
         if rejections:
             response += "\nRejection notes:\n"
             for r in rejections[:3]:  # Show max 3
-                response += f"  • [{r.category}] {r.test_method}: {r.comments}\n"
+                response += f"  • [{r.get('Category')}] {r.get('Test Method')}: {r.get('Comments')}\n"
             if len(rejections) > 3:
                 response += f"  ... and {len(rejections) - 3} more."
         return jsonify({"response": response})
 
     # --- Intent: Summarize all projects ---
     if any(kw in query for kw in ['summarize all', 'overview all', 'all projects status', 'total projects']):
-        total_records = TestRecord.query.count()
-        total_rejections = TestRecord.query.filter(TestRecord.comments != None, TestRecord.comments != '').count()
+        total_records = 0
+        total_rejections = 0
+        for pname in all_project_names:
+            rows = ExcelDataStore.get_project_rows(pname)
+            total_records += len(rows)
+            total_rejections += sum(1 for r in rows if r.get("Comments") and str(r.get("Comments")).strip())
+            
         response = (
             f"📊 **Operations Overview**\n"
             f"Active Projects: {len(all_project_names)}\n"
@@ -1559,20 +1073,20 @@ def api_chat():
     # --- Intent: Rejection analysis ---
     if any(kw in query for kw in ['rejection', 'rejected', 'fail', 'not working', 'issues', 'problems']):
         if target_project:
-            records = TestRecord.query.filter_by(project_name=target_project).filter(
-                TestRecord.comments != None, TestRecord.comments != ''
-            ).all()
-            if records:
-                resp = f"⚠️ **Rejections in Project {target_project}** ({len(records)} found):\n"
-                for r in records:
-                    resp += f"• [{r.category}] {r.test_method} — {r.comments}\n"
+            records = ExcelDataStore.get_project_rows(target_project)
+            rejection_records = [r for r in records if r.get("Comments") and str(r.get("Comments")).strip()]
+            if rejection_records:
+                resp = f"⚠️ **Rejections in Project {target_project}** ({len(rejection_records)} found):\n"
+                for r in rejection_records:
+                    resp += f"• [{r.get('Category')}] {r.get('Test Method')} — {r.get('Comments')}\n"
                 return jsonify({"response": resp})
             else:
                 return jsonify({"response": f"✅ No rejections recorded for Project {target_project}."})
         else:
-            total_rej = TestRecord.query.filter(
-                TestRecord.comments != None, TestRecord.comments != ''
-            ).count()
+            total_rej = 0
+            for pname in all_project_names:
+                rows = ExcelDataStore.get_project_rows(pname)
+                total_rej += sum(1 for r in rows if r.get("Comments") and str(r.get("Comments")).strip())
             return jsonify({"response": f"⚠️ There are **{total_rej}** test records with rejection notes across all projects. Specify a project name for details."})
 
     # --- Intent: SharePoint sync help ---
@@ -1598,8 +1112,9 @@ def api_chat():
     )
     return jsonify({"response": help_text})
 
+
 # --- GANTT CHART GENERATION ---
-def generate_gantt_chart_image(records, filepath, project_name=None):
+def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark', timeline_type='weeks', dpi=300):
     """Generates a multi-row project Gantt timeline image using Matplotlib and saves it."""
     def parse_date(value):
         if not value:
@@ -1640,7 +1155,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None):
         ax.text(0.5, 0.5, f"No active test methods for Project {project_name}" if project_name else "No active test methods to display",
                 horizontalalignment='center', verticalalignment='center', fontsize=12)
         ax.set_axis_off()
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.savefig(filepath, dpi=dpi, bbox_inches='tight')
         plt.close()
         return
 
@@ -1703,15 +1218,27 @@ def generate_gantt_chart_image(records, filepath, project_name=None):
         ax.text(0.5, 0.5, "No valid timeline data to display.",
                 horizontalalignment='center', verticalalignment='center', fontsize=12)
         ax.set_axis_off()
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.savefig(filepath, dpi=dpi, bbox_inches='tight')
         plt.close()
         return
 
-    # Visual style tuned to the provided design: dark background, rounded bars, weekly grid
+    # Visual style tuned to the theme (dark or light)
+    if theme == 'light':
+        bg_color = '#ffffff'
+        fg_text = '#0f172a'
+        grid_color = '#f1f5f9'
+        sidebar_bg = '#f8fafc'
+        fg_sub = '#64748b'
+        today_line_color = '#e11d48'
+    else:
+        bg_color = '#06293a'  # deep navy
+        fg_text = '#eaf6ff'
+        grid_color = '#10475a'
+        sidebar_bg = '#053242'
+        fg_sub = '#cdeefb'
+        today_line_color = '#ffcc00'
+
     fig_height = max(4, len(rows) * 0.6 + 2)
-    bg_color = '#06293a'  # deep navy
-    fg_text = '#eaf6ff'
-    grid_color = '#10475a'
 
     # Use a two-column layout: left sidebar for labels, right for the gantt
     from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
@@ -1721,7 +1248,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None):
     ax = fig.add_subplot(gs[0, 1])
 
     ax.set_facecolor(bg_color)
-    ax_left.set_facecolor('#053242')
+    ax_left.set_facecolor(sidebar_bg)
 
     # Configure left axis (labels sidebar)
     ax_left.set_ylim(-0.5, len(rows) - 0.5)
@@ -1742,7 +1269,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None):
     # Also print each row's short method label under the category area
     for y, row in enumerate(rows):
         short = row['label'].split('\n')[0]
-        ax_left.text(0.05, y + 0.28, short, va='center', ha='left', fontsize=8, color='#cdeefb')
+        ax_left.text(0.05, y + 0.28, short, va='center', ha='left', fontsize=8, color=fg_sub)
 
     # Right axis: Gantt chart area
     start_num = mdates.date2num(min_date - datetime.timedelta(days=1))
@@ -1751,22 +1278,44 @@ def generate_gantt_chart_image(records, filepath, project_name=None):
     ax.set_ylim(-0.5, len(rows) - 0.5)
     ax.invert_yaxis()
 
-    # Weekly vertical lines and subtle grid
+    # Vertical grid lines based on timeline_type
     cur_date = min_date
-    while cur_date <= max_date:
-        x = mdates.date2num(cur_date)
-        ax.axvline(x, color=grid_color, linewidth=0.7, alpha=0.6)
-        cur_date += datetime.timedelta(days=7)
+    if timeline_type == 'days':
+        while cur_date <= max_date:
+            x = mdates.date2num(cur_date)
+            ax.axvline(x, color=grid_color, linewidth=0.5, alpha=0.4)
+            cur_date += datetime.timedelta(days=1)
+    elif timeline_type == 'weeks':
+        while cur_date <= max_date:
+            x = mdates.date2num(cur_date)
+            ax.axvline(x, color=grid_color, linewidth=0.7, alpha=0.6)
+            cur_date += datetime.timedelta(days=7)
+    elif timeline_type == 'months':
+        month_iter = datetime.date(min_date.year, min_date.month, 1)
+        while month_iter <= max_date.date():
+            x = mdates.date2num(datetime.datetime(month_iter.year, month_iter.month, 1))
+            ax.axvline(x, color=grid_color, linewidth=0.8, alpha=0.6)
+            if month_iter.month == 12:
+                month_iter = datetime.date(month_iter.year + 1, 1, 1)
+            else:
+                month_iter = datetime.date(month_iter.year, month_iter.month + 1, 1)
+    elif timeline_type == 'years':
+        year_iter = min_date.year
+        while year_iter <= max_date.year:
+            x = mdates.date2num(datetime.datetime(year_iter, 1, 1))
+            ax.axvline(x, color=grid_color, linewidth=1.0, alpha=0.7)
+            year_iter += 1
 
-    # Month labels above the gantt area
-    month_iter = datetime.date(min_date.year, min_date.month, 1)
-    top_y = -0.8
-    while month_iter <= max_date.date():
-        month_start = datetime.datetime(month_iter.year, month_iter.month, 1)
-        next_month = (month_start.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
-        month_mid = month_start + (next_month - month_start) / 2
-        ax.text(mdates.date2num(month_mid), top_y, month_start.strftime('%B'), ha='center', va='bottom', color=fg_text, fontsize=11, fontweight='bold')
-        month_iter = next_month.date()
+    # Month labels above the gantt area (only for days and weeks views to avoid clutter)
+    if timeline_type in ['days', 'weeks']:
+        month_iter = datetime.date(min_date.year, min_date.month, 1)
+        top_y = -0.8
+        while month_iter <= max_date.date():
+            month_start = datetime.datetime(month_iter.year, month_iter.month, 1)
+            next_month = (month_start.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+            month_mid = month_start + (next_month - month_start) / 2
+            ax.text(mdates.date2num(month_mid), top_y, month_start.strftime('%B'), ha='center', va='bottom', color=fg_text, fontsize=11, fontweight='bold')
+            month_iter = next_month.date()
 
     # Draw rounded bars
     for y, row in enumerate(rows):
@@ -1780,7 +1329,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None):
                                  linewidth=0, facecolor=bar['color'], alpha=0.98)
             ax.add_patch(box)
             # small outline to make bars pop
-            edge = Rectangle((x, y_pos), width, height, linewidth=0.6, edgecolor='#083a4a', facecolor='none')
+            edge = Rectangle((x, y_pos), width, height, linewidth=0.6, edgecolor='#083a4a' if theme == 'dark' else '#cbd5e1', facecolor='none')
             ax.add_patch(edge)
             # label inside if enough space
             try:
@@ -1792,8 +1341,19 @@ def generate_gantt_chart_image(records, filepath, project_name=None):
 
     # X-axis formatting
     ax.xaxis_date()
-    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    if timeline_type == 'days':
+        ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, int((end_num - start_num)/15))))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    elif timeline_type == 'weeks':
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MO))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+    elif timeline_type == 'months':
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+    elif timeline_type == 'years':
+        ax.xaxis.set_major_locator(mdates.YearLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+
     plt.setp(ax.get_xticklabels(), rotation=30, ha='right', color=fg_text, fontsize=8)
 
     # Clean spines
@@ -1802,81 +1362,160 @@ def generate_gantt_chart_image(records, filepath, project_name=None):
 
     # Legend and title
     legend_elements = [Patch(facecolor=color, edgecolor='none', label=phase) for phase, color in phase_colors.items()]
-    ax.legend(handles=legend_elements, loc='upper right', frameon=False, fontsize=9)
+    ax.legend(handles=legend_elements, loc='upper right', frameon=False, fontsize=9, labelcolor=fg_text)
 
     today = datetime.datetime.now()
     if min_date <= today <= max_date:
-        ax.axvline(mdates.date2num(today), color='#ffcc00', linewidth=1.2, linestyle='--', alpha=0.9)
+        ax.axvline(mdates.date2num(today), color=today_line_color, linewidth=1.2, linestyle='--', alpha=0.9)
 
-    ax.set_title(f"Project Gantt Timeline — Project {project_name}" if project_name else "Project Gantt Timeline", fontsize=14, fontweight='bold', pad=14, color=fg_text)
+    timeline_labels = {
+        'days': 'Daily Timeline',
+        'weeks': 'Weekly Timeline',
+        'months': 'Monthly Timeline',
+        'years': 'Yearly Timeline'
+    }
+    scale_label = timeline_labels.get(timeline_type, 'Timeline')
+    title_text = f"Project Gantt Timeline — Project {project_name} ({scale_label})" if project_name else f"Project Gantt Timeline ({scale_label})"
+    ax.set_title(title_text, fontsize=14, fontweight='bold', pad=14, color=fg_text)
 
     plt.tight_layout()
-    plt.savefig(filepath, dpi=300, bbox_inches='tight', facecolor=fig.get_facecolor())
+    plt.savefig(filepath, dpi=dpi, bbox_inches='tight', facecolor=fig.get_facecolor())
     plt.close(fig)
+
+
+# --- PDF REPORT DYNAMIC PAGE NUMBERING ---
+class NumberedCanvas(canvas.Canvas):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_page_decorations(num_pages)
+            super().showPage()
+        super().save()
+
+    def draw_page_decorations(self, page_count):
+        self.saveState()
+        self.setFont("Helvetica", 8)
+        self.setFillColor(colors.HexColor("#64748b"))
+        
+        # Top Accent Double Stripe Bar
+        self.setFillColor(colors.HexColor("#0f172a")) # Primary Slate 900
+        self.rect(0, 782, 612, 10, fill=True, stroke=False)
+        self.setFillColor(colors.HexColor("#0284c7")) # Accent Sky 600
+        self.rect(0, 778, 612, 4, fill=True, stroke=False)
+        
+        # Header line
+        self.setStrokeColor(colors.HexColor("#e2e8f0"))
+        self.setLineWidth(0.75)
+        self.line(40, 745, 572, 745)
+        
+        self.setFillColor(colors.HexColor("#0f172a"))
+        self.setFont("Helvetica-Bold", 8)
+        
+        # Draw Excel report name if available, otherwise default
+        excel_name = getattr(self, 'excel_filename', '')
+        header_left = f"EXCEL REPORT: {excel_name.upper()}" if excel_name else "TEST OPERATIONS DASHBOARD"
+        self.drawString(40, 750, header_left)
+        
+        self.setFont("Helvetica", 8)
+        self.setFillColor(colors.HexColor("#64748b"))
+        self.drawRightString(572, 750, "PROJECT STATUS REPORT")
+            
+        # Footer
+        self.line(40, 45, 572, 45) # Footer line
+        page_text = f"Page {self._pageNumber} of {page_count}"
+        self.drawRightString(572, 32, page_text)
+        self.drawString(40, 32, "CONFIDENTIAL - INTERNAL USE ONLY")
+        self.drawCentredString(306, 32, datetime.datetime.now().strftime("%Y-%m-%d"))
+        
+        self.restoreState()
+
 
 # --- PDF REPORT GENERATION ---
 def generate_pdf_report(filename, project_name=None, comment=None):
     """Generates a styled Test Operations PDF report containing a Gantt chart and rejected products."""
-    ExcelDataStore.initialize_db()
-    
     # Fetch records filtered by project
     if project_name:
-        records = TestRecord.query.filter_by(project_name=project_name).all()
-        records_dict = [r.to_dict() for r in records]
+        records_dict = ExcelDataStore.get_project_rows(project_name)
     else:
-        records_dict = ExcelDataStore.get_tasks()
+        records_dict = []
+        for p in ExcelDataStore.get_projects():
+            records_dict.extend(ExcelDataStore.get_project_rows(p["name"]))
         
     # 1. Generate the Gantt Chart Image
     gantt_image_path = os.path.join(UPLOAD_FOLDER, "gantt_chart_report.png")
-    generate_gantt_chart_image(records_dict, gantt_image_path, project_name)
+    generate_gantt_chart_image(records_dict, gantt_image_path, project_name, theme='light')
     
+    # Extract Excel filename
+    excel_filename = ""
+    if os.path.exists(SYNC_CONFIG_PATH):
+        try:
+            with open(SYNC_CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+            path = config.get("file_path", "")
+            if "://" in path:
+                path = path.split("://", 1)[1]
+            excel_filename = os.path.basename(path)
+        except Exception:
+            pass
+    if not excel_filename:
+        excel_filename = "tasks.xlsx"
+        
     doc = SimpleDocTemplate(filename, pagesize=letter,
-                            rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+                            rightMargin=40, leftMargin=40, topMargin=60, bottomMargin=60)
     story = []
     styles = getSampleStyleSheet()
     
     # Custom color palette
-    charcoal = colors.HexColor("#121212")
-    steel_gray = colors.HexColor("#555555")
-    prussian_blue = colors.HexColor("#00539C")
-    light_bg = colors.HexColor("#F9F9FB")
-    border_color = colors.HexColor("#E5E5E7")
-    danger_red = colors.HexColor("#C0392B")
+    primary_color = colors.HexColor("#0f172a")
+    secondary_color = colors.HexColor("#475569")
+    accent_color = colors.HexColor("#0284c7")
+    bg_light = colors.HexColor("#f8fafc")
+    border_color = colors.HexColor("#e2e8f0")
+    danger_red = colors.HexColor("#e11d48")
     
     title_style = ParagraphStyle(
-        'OpsTitle',
+        'CampTitle',
         parent=styles['Heading1'],
-        fontSize=22,
-        leading=26,
-        textColor=charcoal,
+        fontSize=24,
+        leading=28,
+        textColor=primary_color,
         fontName='Helvetica-Bold',
-        spaceAfter=6
+        spaceAfter=4
     )
     
     subtitle_style = ParagraphStyle(
-        'OpsSubtitle',
+        'CampSubtitle',
         parent=styles['Normal'],
-        fontSize=10,
-        leading=14,
-        textColor=steel_gray,
+        fontSize=9,
+        leading=13,
+        textColor=secondary_color,
         fontName='Helvetica',
-        spaceAfter=20
+        spaceAfter=15
     )
     
     section_title_style = ParagraphStyle(
-        'OpsSection',
+        'CampSection',
         parent=styles['Heading2'],
-        fontSize=13,
-        leading=17,
-        textColor=prussian_blue,
+        fontSize=12,
+        leading=16,
+        textColor=primary_color,
         fontName='Helvetica-Bold',
-        spaceBefore=15,
-        spaceAfter=10,
+        spaceBefore=14,
+        spaceAfter=8,
         keepWithNext=True
     )
     
     cell_header = ParagraphStyle(
-        'OpsHeader',
+        'CampHeader',
         parent=styles['Normal'],
         fontSize=8,
         leading=10,
@@ -1885,16 +1524,16 @@ def generate_pdf_report(filename, project_name=None, comment=None):
     )
     
     cell_style = ParagraphStyle(
-        'OpsCell',
+        'CampCell',
         parent=styles['Normal'],
         fontSize=8,
         leading=11,
-        textColor=charcoal,
+        textColor=primary_color,
         fontName='Helvetica'
     )
     
     cell_bold = ParagraphStyle(
-        'OpsCellBold',
+        'CampCellBold',
         parent=styles['Normal'],
         fontSize=8,
         leading=11,
@@ -1902,56 +1541,87 @@ def generate_pdf_report(filename, project_name=None, comment=None):
         fontName='Helvetica-Bold'
     )
     
+    def create_section_header(title_text):
+        p = Paragraph(title_text, section_title_style)
+        t = Table([[p]], colWidths=[532])
+        t.setStyle(TableStyle([
+            ('LINEBELOW', (0,0), (-1,-1), 1.5, accent_color),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]))
+        return t
+
     # Header Title
-    doc_title = f"Project Gantt Timeline - Project {project_name}" if project_name else "Daily Test Operations Report"
+    doc_title = f"Project Status Report - Project {project_name}" if project_name else "Daily Test Operations Report"
     story.append(Paragraph(doc_title, title_style))
     story.append(Paragraph(f"Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Confidential Operations Data", subtitle_style))
 
-    summary_style = ParagraphStyle(
-        'OpsSummary',
-        parent=styles['Normal'],
-        fontSize=9,
-        leading=12,
-        textColor=steel_gray,
-        spaceAfter=6
-    )
-
+    # KPI summary cards
     total_records = len(records_dict)
     total_defects = sum(int(r.get('Defect Qty', 0) or 0) for r in records_dict)
     total_comments = sum(1 for r in records_dict if str(r.get('Comments', '')).strip())
 
-    summary_texts = [
-        f"Project: {project_name}" if project_name else "Project: All Active Projects",
-        f"Total task records: {total_records}",
-        f"Total defects logged: {total_defects}",
-        f"Records with comments or rejections: {total_comments}"
+    kpi_table_data = [
+        [
+            Paragraph(f"<font size=7.5 color='#64748b'>PROJECT NAME</font><br/><font size=11 color='#0f172a'><b>{project_name or 'ALL PROJECTS'}</b></font>", cell_style),
+            Paragraph(f"<font size=7.5 color='#64748b'>TOTAL TASKS</font><br/><font size=11 color='#0f172a'><b>{total_records}</b></font>", cell_style),
+            Paragraph(f"<font size=7.5 color='#64748b'>TOTAL DEFECTS</font><br/><font size=11 color='#e11d48'><b>{total_defects}</b></font>", cell_style),
+            Paragraph(f"<font size=7.5 color='#64748b'>REJECTIONS</font><br/><font size=11 color='#d97706'><b>{total_comments}</b></font>", cell_style),
+        ]
     ]
-    for text in summary_texts:
-        story.append(Paragraph(text, summary_style))
-    story.append(Spacer(1, 12))
+    kpi_table = Table(kpi_table_data, colWidths=[133, 133, 133, 133])
+    kpi_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), bg_light),
+        ('BOX', (0,0), (-1,-1), 1, border_color),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, border_color),
+        ('TOPPADDING', (0,0), (-1,-1), 8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
+        ('LEFTPADDING', (0,0), (-1,-1), 10),
+        ('RIGHTPADDING', (0,0), (-1,-1), 10),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(kpi_table)
+    story.append(Spacer(1, 10))
 
     if comment and str(comment).strip():
-        story.append(Paragraph("Report Comment", section_title_style))
-        story.append(Paragraph(str(comment).strip().replace('\n', '<br/>'), summary_style))
-        story.append(Spacer(1, 12))
+        story.append(create_section_header("Report Comment"))
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(str(comment).strip().replace('\n', '<br/>'), subtitle_style))
+        story.append(Spacer(1, 6))
 
-    story.append(Paragraph("Timeline Summary", section_title_style))
-    story.append(Paragraph("The Gantt chart below represents scheduled phase progression for each test method, based on actual start dates and phase durations. Entries are ordered by earliest start date to provide a clean timeline overview.", summary_style))
-    story.append(Spacer(1, 8))
-    story.append(Paragraph("Test Method Milestones (Gantt Chart)", section_title_style))
-    story.append(Image(gantt_image_path, width=500, height=270))
-    story.append(Spacer(1, 20))
-    story.append(Paragraph("Test Records Summary", section_title_style))
+    story.append(create_section_header("Project Gantt Timeline"))
+    story.append(Spacer(1, 4))
+    
+    # Wrap Gantt chart image in a table with a subtle border
+    gantt_table = Table([[Image(gantt_image_path, width=524, height=275)]], colWidths=[532])
+    gantt_table.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 1, border_color),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 3),
+        ('RIGHTPADDING', (0,0), (-1,-1), 3),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(gantt_table)
+    story.append(Spacer(1, 12))
+
+    story.append(create_section_header("Test Records Summary"))
+    story.append(Spacer(1, 6))
+    
     all_table_data = [[
         Paragraph("#", cell_header),
         Paragraph("Category", cell_header),
         Paragraph("Test Method", cell_header),
         Paragraph("Test #", cell_header),
-        Paragraph("Proto\n(W/D/Qty)", cell_header),
-        Paragraph("DVT\n(W/D/Qty)", cell_header),
-        Paragraph("EVT\n(W/D/Qty)", cell_header),
-        Paragraph("PVT\n(W/D/Qty)", cell_header),
-        Paragraph("Defect\nQty", cell_header),
+        Paragraph("Proto", cell_header),
+        Paragraph("DVT", cell_header),
+        Paragraph("EVT", cell_header),
+        Paragraph("PVT", cell_header),
+        Paragraph("Defect", cell_header),
         Paragraph("Rejection Comment/s", cell_header)
     ]]
     for idx, r in enumerate(records_dict, 1):
@@ -1962,36 +1632,39 @@ def generate_pdf_report(filename, project_name=None, comment=None):
             Paragraph(r.get("Category", ""), cell_style),
             Paragraph(r.get("Test Method", ""), cell_style),
             Paragraph(r.get("Test Number", ""), cell_style),
-            Paragraph(f"{r.get('Proto Weeks',0)}w {r.get('Proto Days',0)}d / {r.get('Proto Qty',0)}", cell_style),
-            Paragraph(f"{r.get('DVT Weeks',0)}w {r.get('DVT Days',0)}d / {r.get('DVT Qty',0)}", cell_style),
-            Paragraph(f"{r.get('EVT Weeks',0)}w {r.get('EVT Days',0)}d / {r.get('EVT Qty',0)}", cell_style),
-            Paragraph(f"{r.get('PVT Weeks',0)}w {r.get('PVT Days',0)}d / {r.get('PVT Qty',0)}", cell_style),
+            Paragraph(f"{r.get('Proto Weeks',0)}w {r.get('Proto Days',0)}d<br/><font color='#64748b'>Qty: {r.get('Proto Qty',0)}</font>", cell_style),
+            Paragraph(f"{r.get('DVT Weeks',0)}w {r.get('DVT Days',0)}d<br/><font color='#64748b'>Qty: {r.get('DVT Qty',0)}</font>", cell_style),
+            Paragraph(f"{r.get('EVT Weeks',0)}w {r.get('EVT Days',0)}d<br/><font color='#64748b'>Qty: {r.get('EVT Qty',0)}</font>", cell_style),
+            Paragraph(f"{r.get('PVT Weeks',0)}w {r.get('PVT Days',0)}d<br/><font color='#64748b'>Qty: {r.get('PVT Qty',0)}</font>", cell_style),
             Paragraph(str(defect_qty), defect_style),
             Paragraph(r.get("Comments", "-") or "-", cell_bold if r.get("Comments") else cell_style)
         ])
     if not records_dict:
         all_table_data.append([Paragraph("No records found.", cell_style)] + [Paragraph("-", cell_style)] * 9)
 
-    all_table = Table(all_table_data, colWidths=[18, 80, 90, 55, 62, 62, 62, 62, 35, 100])
+    all_table = Table(all_table_data, colWidths=[15, 70, 80, 45, 52, 52, 52, 52, 30, 84])
     all_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), charcoal),
+        ('BACKGROUND', (0,0), (-1,0), primary_color),
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
         ('ALIGN', (0,0), (0,-1), 'CENTER'),
         ('ALIGN', (8,0), (8,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('GRID', (0,0), (-1,-1), 0.4, border_color),
+        ('LINEBELOW', (0,0), (-1,0), 1, primary_color),
+        ('LINEBELOW', (0,1), (-1,-1), 0.5, border_color),
         ('TOPPADDING', (0,0), (-1,-1), 5),
         ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, light_bg])
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, bg_light])
     ]))
     story.append(all_table)
     story.append(Spacer(1, 14))
 
     # Rejections-only sub-table
     rejected_records = [r for r in records_dict if str(r.get("Comments", "")).strip() != "" or int(r.get("Defect Qty", 0)) > 0]
-    story.append(Paragraph("Rejected Products Inventory", section_title_style))
+    story.append(create_section_header("Rejected Products Inventory"))
+    story.append(Spacer(1, 6))
+    
     table_data = [[
         Paragraph("Category", cell_header),
         Paragraph("Test Method", cell_header),
@@ -2015,32 +1688,365 @@ def generate_pdf_report(filename, project_name=None, comment=None):
             Paragraph("-", cell_style), Paragraph("-", cell_style)
         ])
 
-    tasks_table = Table(table_data, colWidths=[110, 110, 70, 55, 185])
+    tasks_table = Table(table_data, colWidths=[100, 110, 65, 55, 202])
     tasks_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), charcoal),
+        ('BACKGROUND', (0,0), (-1,0), primary_color),
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('GRID', (0,0), (-1,-1), 0.5, border_color),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('RIGHTPADDING', (0,0), (-1,-1), 6),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, light_bg])
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LINEBELOW', (0,0), (-1,0), 1, primary_color),
+        ('LINEBELOW', (0,1), (-1,-1), 0.5, border_color),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, bg_light])
     ]))
     story.append(tasks_table)
     
-    # Footer Note
-    story.append(Spacer(1, 30))
-    footer_style = ParagraphStyle(
-        'OpsFooter',
+    # Set the excel_filename on NumberedCanvas class so it can be accessed during build
+    NumberedCanvas.excel_filename = excel_filename
+    doc.build(story, canvasmaker=NumberedCanvas)
+
+
+# --- CONSOLIDATED PDF REPORT GENERATION ---
+def render_gantt_task_module(records_dict, img_path, project_name, timeline_type, dpi):
+    try:
+        generate_gantt_chart_image(records_dict, img_path, project_name=project_name, theme='light', timeline_type=timeline_type, dpi=dpi)
+        return True
+    except Exception as e:
+        print(f"Error rendering Gantt chart {project_name} ({timeline_type}): {e}")
+        return False
+
+def generate_consolidated_pdf_report(filename, progress_callback=None):
+    """Generates a consolidated PDF report for ALL active projects, displaying multiple timelines and defect tables."""
+    # Fetch all active projects
+    projects = ExcelDataStore.get_projects()
+    
+    # Extract Excel filename
+    excel_filename = ""
+    if os.path.exists(SYNC_CONFIG_PATH):
+        try:
+            with open(SYNC_CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+            path = config.get("file_path", "")
+            if "://" in path:
+                path = path.split("://", 1)[1]
+            excel_filename = os.path.basename(path)
+        except Exception:
+            pass
+    if not excel_filename:
+        excel_filename = "tasks.xlsx"
+        
+    doc = SimpleDocTemplate(filename, pagesize=letter,
+                            rightMargin=40, leftMargin=40, topMargin=60, bottomMargin=60)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Custom color palette
+    primary_color = colors.HexColor("#0f172a")
+    secondary_color = colors.HexColor("#475569")
+    accent_color = colors.HexColor("#0284c7")
+    bg_light = colors.HexColor("#f8fafc")
+    border_color = colors.HexColor("#e2e8f0")
+    danger_red = colors.HexColor("#e11d48")
+    
+    title_style = ParagraphStyle(
+        'OpsTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        leading=28,
+        textColor=primary_color,
+        fontName='Helvetica-Bold',
+        spaceAfter=4
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'OpsSubtitle',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=13,
+        textColor=secondary_color,
+        fontName='Helvetica',
+        spaceAfter=15
+    )
+    
+    section_title_style = ParagraphStyle(
+        'ConsolidatedSection',
+        parent=styles['Heading2'],
+        fontSize=14,
+        leading=18,
+        textColor=primary_color,
+        fontName='Helvetica-Bold',
+        spaceBefore=18,
+        spaceAfter=10,
+        keepWithNext=True
+    )
+    
+    subsection_title_style = ParagraphStyle(
+        'ConsolidatedSubSection',
+        parent=styles['Heading3'],
+        fontSize=11,
+        leading=15,
+        textColor=secondary_color,
+        fontName='Helvetica-Bold',
+        spaceBefore=10,
+        spaceAfter=6,
+        keepWithNext=True
+    )
+    
+    cell_header = ParagraphStyle(
+        'OpsHeader',
         parent=styles['Normal'],
         fontSize=8,
-        textColor=steel_gray,
-        alignment=1
+        leading=10,
+        textColor=colors.white,
+        fontName='Helvetica-Bold'
     )
-    story.append(Paragraph("Confidential &bull; Test Technology Operations &bull; Internal Use Only", footer_style))
     
-    doc.build(story)
+    cell_style = ParagraphStyle(
+        'OpsCell',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=11,
+        textColor=primary_color,
+        fontName='Helvetica'
+    )
+    
+    cell_bold = ParagraphStyle(
+        'OpsCellBold',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=11,
+        textColor=danger_red,
+        fontName='Helvetica-Bold'
+    )
+    
+    callout_style = ParagraphStyle(
+        'CalloutText',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=13,
+        textColor=secondary_color,
+        fontName='Helvetica-Oblique'
+    )
+
+    def create_section_header(title_text):
+        p = Paragraph(title_text, section_title_style)
+        t = Table([[p]], colWidths=[532])
+        t.setStyle(TableStyle([
+            ('LINEBELOW', (0,0), (-1,-1), 1.5, accent_color),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('TOPPADDING', (0,0), (-1,-1), 10),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]))
+        return t
+
+    # Document Header
+    story.append(Paragraph("Consolidated Project Status Report", title_style))
+    story.append(Paragraph(f"Excel Source: {excel_filename} | Compiled on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style))
+    story.append(Spacer(1, 10))
+    
+    temp_files = []
+    
+    # 1. Collect all rendering tasks
+    render_tasks = []
+    project_records = {}
+    
+    for proj in projects:
+        pname = proj["name"]
+        records_dict = ExcelDataStore.get_project_rows(pname)
+        if not records_dict:
+            continue
+        project_records[pname] = records_dict
+        
+        timelines = ['days', 'weeks', 'months', 'years']
+        for t_type in timelines:
+            img_path = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_{t_type}.jpg")
+            render_tasks.append((records_dict, img_path, pname, t_type, 80))
+            temp_files.append(img_path)
+
+    # 2. Run rendering tasks in parallel using ProcessPoolExecutor
+    total_tasks = len(render_tasks)
+    completed_tasks = 0
+    
+    if progress_callback:
+        progress_callback(5, f"Spawning worker processes for {total_tasks} charts...")
+        
+    try:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        with ProcessPoolExecutor() as executor:
+            futures = {
+                executor.submit(render_gantt_task_module, t[0], t[1], t[2], t[3], t[4]): t
+                for t in render_tasks
+            }
+            
+            for future in as_completed(futures):
+                completed_tasks += 1
+                if progress_callback:
+                    pct = int((completed_tasks / max(1, total_tasks)) * 85) + 5
+                    progress_callback(pct, f"Rendered chart {completed_tasks}/{total_tasks}...")
+    except Exception as e:
+        print(f"Error during parallel rendering: {e}")
+        
+    try:
+        from reportlab.platypus import PageBreak
+        
+        valid_project_count = 0
+        for pname, records_dict in project_records.items():
+            if not records_dict:
+                continue
+                
+            # If not the first project, start on a new page
+            if valid_project_count > 0:
+                story.append(PageBreak())
+            valid_project_count += 1
+                
+            story.append(create_section_header(f"Project Sheet: {pname}"))
+            story.append(Spacer(1, 10))
+            
+            img_days = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_days.jpg")
+            img_weeks = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_weeks.jpg")
+            img_months = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_months.jpg")
+            img_years = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_years.jpg")
+            
+            # Add Gantt charts in pairs (2 per page)
+            # Pair 1: Days and Weeks
+            story.append(Paragraph("Daily & Weekly Timelines", subsection_title_style))
+            t_table_1_data = []
+            row_images = []
+            if os.path.exists(img_days):
+                row_images.append(Image(img_days, width=260, height=140))
+            else:
+                row_images.append(Paragraph("Failed to render daily timeline.", cell_style))
+            if os.path.exists(img_weeks):
+                row_images.append(Image(img_weeks, width=260, height=140))
+            else:
+                row_images.append(Paragraph("Failed to render weekly timeline.", cell_style))
+            t_table_1_data.append(row_images)
+            
+            t_table_1 = Table(t_table_1_data, colWidths=[266, 266])
+            t_table_1.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('LEFTPADDING', (0,0), (-1,-1), 2),
+                ('RIGHTPADDING', (0,0), (-1,-1), 2),
+            ]))
+            story.append(t_table_1)
+            story.append(Spacer(1, 15))
+            
+            # Pair 2: Months and Years
+            story.append(Paragraph("Monthly & Yearly Timelines", subsection_title_style))
+            t_table_2_data = []
+            row_images_2 = []
+            if os.path.exists(img_months):
+                row_images_2.append(Image(img_months, width=260, height=140))
+            else:
+                row_images_2.append(Paragraph("Failed to render monthly timeline.", cell_style))
+            if os.path.exists(img_years):
+                row_images_2.append(Image(img_years, width=260, height=140))
+            else:
+                row_images_2.append(Paragraph("Failed to render yearly timeline.", cell_style))
+            t_table_2_data.append(row_images_2)
+            
+            t_table_2 = Table(t_table_2_data, colWidths=[266, 266])
+            t_table_2.setStyle(TableStyle([
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('LEFTPADDING', (0,0), (-1,-1), 2),
+                ('RIGHTPADDING', (0,0), (-1,-1), 2),
+            ]))
+            story.append(t_table_2)
+            story.append(Spacer(1, 15))
+            
+            # Defect & Rejection Analysis Table
+            story.append(Paragraph("Defect & Rejection Analysis", subsection_title_style))
+            
+            # Filter records with defects
+            defective_records = [r for r in records_dict if int(r.get("Defect Qty", 0) or 0) > 0]
+            
+            if defective_records:
+                # Render defect table
+                table_data = [[
+                    Paragraph("Category (Product)", cell_header),
+                    Paragraph("Test Method", cell_header),
+                    Paragraph("Test Number", cell_header),
+                    Paragraph("Defect Qty", cell_header)
+                ]]
+                for r in defective_records:
+                    table_data.append([
+                        Paragraph(r.get("Category", ""), cell_style),
+                        Paragraph(r.get("Test Method", ""), cell_style),
+                        Paragraph(r.get("Test Number", ""), cell_style),
+                        Paragraph(str(r.get("Defect Qty", 0)), cell_bold)
+                    ])
+                
+                defect_table = Table(table_data, colWidths=[132, 180, 100, 120])
+                defect_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), primary_color),
+                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                    ('LINEBELOW', (0,0), (-1,0), 1, primary_color),
+                    ('LINEBELOW', (0,1), (-1,-1), 0.5, border_color),
+                    ('TOPPADDING', (0,0), (-1,-1), 5),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+                    ('LEFTPADDING', (0,0), (-1,-1), 6),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 6),
+                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, bg_light])
+                ]))
+                story.append(defect_table)
+                story.append(Spacer(1, 10))
+                
+                # Render rejection comments below the table
+                story.append(Paragraph("<b>Rejection Comments & Defect Reasons:</b>", cell_style))
+                story.append(Spacer(1, 4))
+                
+                for r in defective_records:
+                    comment_text = r.get("Comments", "").strip()
+                    if not comment_text:
+                        comment_text = "No comments/reasons recorded for this defect."
+                    
+                    prod_info = f"<b>{r.get('Category')}</b> ({r.get('Test Method')} - {r.get('Test Number')}):"
+                    story.append(Paragraph(f"• {prod_info} {comment_text}", cell_style))
+                    story.append(Spacer(1, 2))
+            else:
+                # Render "no issues" message
+                no_issue_table = Table([[
+                    Paragraph("No issues occurred during the test methods processes.", callout_style)
+                ]], colWidths=[532])
+                no_issue_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,-1), bg_light),
+                    ('BOX', (0,0), (-1,-1), 1, border_color),
+                    ('TOPPADDING', (0,0), (-1,-1), 10),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 10),
+                    ('LEFTPADDING', (0,0), (-1,-1), 12),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 12),
+                ]))
+                story.append(no_issue_table)
+                
+            story.append(Spacer(1, 15))
+            
+        # Build document
+        # Set the excel_filename on NumberedCanvas class so it can be accessed during build
+        NumberedCanvas.excel_filename = excel_filename
+        
+        if progress_callback:
+            progress_callback(95, "Compiling PDF document...")
+            
+        doc.build(story, canvasmaker=NumberedCanvas)
+        
+        if progress_callback:
+            progress_callback(100, "Completed!")
+        
+    finally:
+        # Clean up temporary files
+        for f in temp_files:
+            try:
+                if os.path.exists(f):
+                    os.remove(f)
+            except Exception as ex:
+                print(f"Error removing temp file {f}: {ex}")
+
 
 @app.route('/generate-report', methods=['GET'])
 @login_required
@@ -2054,6 +2060,97 @@ def generate_report():
         return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
+
+@app.route('/generate-consolidated-report', methods=['GET'])
+@login_required
+def generate_consolidated_report():
+    pdf_filename = os.path.join(UPLOAD_FOLDER, "Consolidated_Project_Report.pdf")
+    try:
+        generate_consolidated_pdf_report(pdf_filename)
+        return send_file(pdf_filename, as_attachment=True, download_name="Consolidated_Project_Report.pdf", mimetype='application/pdf')
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate consolidated PDF: {str(e)}"}), 500
+
+# --- ASYNCHRONOUS EXPORT PROGRESS ENDPOINTS ---
+export_tasks = {}
+
+@app.route('/api/export-consolidated/start', methods=['POST'])
+@login_required
+def start_consolidated_export():
+    task_id = str(uuid.uuid4())
+    export_tasks[task_id] = {
+        "status": "processing",
+        "progress": 0,
+        "message": "Initializing consolidated PDF generation..."
+    }
+    
+    def run_compilation():
+        temp_pdf = os.path.join(UPLOAD_FOLDER, f"consolidated_{task_id}.pdf")
+        
+        def update_progress(percent, msg):
+            if task_id in export_tasks:
+                export_tasks[task_id]["progress"] = percent
+                export_tasks[task_id]["message"] = msg
+            
+        try:
+            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress)
+            if task_id in export_tasks:
+                export_tasks[task_id]["status"] = "completed"
+                export_tasks[task_id]["progress"] = 100
+                export_tasks[task_id]["message"] = "Completed!"
+        except Exception as e:
+            if task_id in export_tasks:
+                export_tasks[task_id]["status"] = "failed"
+                export_tasks[task_id]["progress"] = 0
+                export_tasks[task_id]["message"] = f"Failed: {str(e)}"
+            import traceback
+            traceback.print_exc()
+
+    thread = threading.Thread(target=run_compilation)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({"task_id": task_id})
+
+@app.route('/api/export-consolidated/progress/<task_id>', methods=['GET'])
+@login_required
+def consolidated_export_progress(task_id):
+    state = export_tasks.get(task_id)
+    if not state:
+        return jsonify({"status": "failed", "progress": 0, "message": "Task not found"}), 404
+    return jsonify(state)
+
+@app.route('/api/export-consolidated/download/<task_id>/Consolidated_Project_Report.pdf', methods=['GET'])
+@login_required
+def consolidated_export_download(task_id):
+    temp_pdf = os.path.join(UPLOAD_FOLDER, f"consolidated_{task_id}.pdf")
+    if not os.path.exists(temp_pdf):
+        return jsonify({"error": "Compiled report file not found or expired"}), 404
+        
+    try:
+        def generate_pdf_stream():
+            try:
+                with open(temp_pdf, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        yield chunk
+            finally:
+                if task_id in export_tasks:
+                    del export_tasks[task_id]
+                try:
+                    if os.path.exists(temp_pdf):
+                        os.remove(temp_pdf)
+                except Exception as ex:
+                    print(f"Error removing temp export PDF file: {ex}")
+
+        from flask import Response
+        response = Response(generate_pdf_stream(), mimetype='application/pdf')
+        response.headers['Content-Disposition'] = 'attachment; filename="Consolidated_Project_Report.pdf"'
+        return response
+    except Exception as e:
+        return jsonify({"error": f"Failed to stream PDF: {str(e)}"}), 500
 
 # --- EMAIL AUTOMATION ---
 
@@ -2144,16 +2241,6 @@ This email was auto-generated by the Operations Dashboard."""
         "subject": subject
     })
 
-    # Step 3: Simulation mode (no SMTP configured)
-    return jsonify({
-        "success": True,
-        "mode": "simulation",
-        "message": f"Email simulated (no SMTP configured). PDF report generated and would be sent to {recipient}.",
-        "pdf_generated": True,
-        "recipient": recipient,
-        "subject": subject
-    })
-
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -2172,6 +2259,12 @@ def handle_exception(e):
         pass
     return jsonify({"error": str(e), "traceback": tb}), 500
 
+@app.after_request
+def add_header(response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002, debug=True)
-

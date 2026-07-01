@@ -592,45 +592,9 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPdfDownload.addEventListener('click', () => {
             const projectParam = currentProject ? `?project=${encodeURIComponent(currentProject)}` : '';
             const url = `/generate-report${projectParam}`;
-            const downloadName = currentProject
-                ? `Daily_Operations_Report_${currentProject}.pdf`
-                : 'Daily_Operations_Report.pdf';
-
-            // Show loading state
-            const pdfIcon = document.getElementById('pdf-icon');
-            const originalIconClass = pdfIcon ? pdfIcon.className : 'fa-solid fa-file-pdf';
-            if (pdfIcon) pdfIcon.className = 'fa-solid fa-spinner fa-spin';
-            btnPdfDownload.classList.add('loading');
+            
             showToast(`Generating PDF report for Project ${currentProject || 'All'}...`, 'info');
-
-            fetch(url)
-                .then(response => {
-                    if (!response.ok) {
-                        return response.json().then(d => { throw new Error(d.error || 'Failed to generate PDF'); });
-                    }
-                    return response.blob();
-                })
-                .then(blob => {
-                    // Create a temporary anchor to trigger download
-                    const blobUrl = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.style.display = 'none';
-                    a.href = blobUrl;
-                    a.download = downloadName;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(blobUrl);
-                    a.remove();
-                    showToast(`PDF report downloaded: ${downloadName}`, 'success');
-                })
-                .catch(err => {
-                    showToast(`PDF export failed: ${err.message}`, 'error');
-                    console.error('PDF Export Error:', err);
-                })
-                .finally(() => {
-                    if (pdfIcon) pdfIcon.className = originalIconClass;
-                    btnPdfDownload.classList.remove('loading');
-                });
+            window.location.href = url;
         });
     }
 
@@ -732,6 +696,92 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             triggerPdfDownload(activeProj);
+        });
+    }
+
+    // Consolidated PDF Export
+    const btnPdfConsolidated = document.getElementById('btn-pdf-consolidated');
+    const exportProgressModal = document.getElementById('export-progress-modal');
+    const exportProgressBar = document.getElementById('export-progress-bar');
+    const exportProgressMessage = document.getElementById('export-progress-message');
+    const exportProgressPercent = document.getElementById('export-progress-percent');
+    
+    if (btnPdfConsolidated) {
+        btnPdfConsolidated.addEventListener('click', () => {
+            const originalIcon = btnPdfConsolidated.querySelector('i');
+            const originalIconClass = originalIcon ? originalIcon.className : 'fa-solid fa-file-pdf';
+            if (originalIcon) originalIcon.className = 'fa-solid fa-spinner fa-spin';
+            btnPdfConsolidated.classList.add('loading');
+            
+            // 1. Reset and Show Progress Modal
+            if (exportProgressBar) exportProgressBar.style.width = '0%';
+            if (exportProgressPercent) exportProgressPercent.textContent = '0%';
+            if (exportProgressMessage) exportProgressMessage.textContent = 'Initializing...';
+            if (exportProgressModal) exportProgressModal.classList.add('active');
+            
+            let pollInterval = null;
+            
+            const cleanupExportUI = () => {
+                if (exportProgressModal) exportProgressModal.classList.remove('active');
+                if (originalIcon) originalIcon.className = originalIconClass;
+                btnPdfConsolidated.classList.remove('loading');
+            };
+            
+            const triggerConsolidatedDownload = (taskId) => {
+                window.location.href = `/api/export-consolidated/download/${taskId}/Consolidated_Project_Report.pdf`;
+                showToast('Consolidated PDF report downloaded successfully!', 'success');
+                setTimeout(() => {
+                    cleanupExportUI();
+                }, 800);
+            };
+            
+            const pollExportProgress = (taskId) => {
+                pollInterval = setInterval(() => {
+                    fetch(`/api/export-consolidated/progress/${taskId}`)
+                        .then(res => {
+                            if (!res.ok) throw new Error('Task state unavailable');
+                            return res.json();
+                        })
+                        .then(state => {
+                            const progressVal = state.progress || 0;
+                            const msg = state.message || 'Processing...';
+                            
+                            if (exportProgressBar) exportProgressBar.style.width = `${progressVal}%`;
+                            if (exportProgressPercent) exportProgressPercent.textContent = `${progressVal}%`;
+                            if (exportProgressMessage) exportProgressMessage.textContent = msg;
+                            
+                            if (state.status === 'completed') {
+                                clearInterval(pollInterval);
+                                triggerConsolidatedDownload(taskId);
+                            } else if (state.status === 'failed') {
+                                clearInterval(pollInterval);
+                                throw new Error(state.message || 'Server task failed');
+                            }
+                        })
+                        .catch(err => {
+                            clearInterval(pollInterval);
+                            showToast(`Export tracking failed: ${err.message}`, 'error');
+                            cleanupExportUI();
+                        });
+                }, 600);
+            };
+            
+            // 2. Start consolidated export task
+            fetch('/api/export-consolidated/start', { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to start consolidated export task');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    pollExportProgress(data.task_id);
+                })
+                .catch(err => {
+                    showToast(`Consolidated PDF export failed: ${err.message}`, 'error');
+                    console.error('Consolidated PDF Export Error:', err);
+                    cleanupExportUI();
+                });
         });
     }
 
@@ -917,31 +967,8 @@ Mail Status: Queued and Sent successfully (Simulated)`;
     // Trigger PDF download programmatically
     function triggerPdfDownload(projectName) {
         const url = `/generate-report?project=${encodeURIComponent(projectName)}`;
-        const downloadName = `Daily_Operations_Report_${projectName}.pdf`;
-
-        fetch(url)
-            .then(response => {
-                if (!response.ok) {
-                    return response.json().then(d => { throw new Error(d.error || 'Failed'); });
-                }
-                return response.blob();
-            })
-            .then(blob => {
-                const blobUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = blobUrl;
-                a.download = downloadName;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(blobUrl);
-                a.remove();
-                showToast(`PDF Report for Project ${projectName} downloaded!`, 'success');
-            })
-            .catch(err => {
-                showToast(`PDF generation failed: ${err.message}`, 'error');
-                appendMessage(`⚠️ Failed to generate report: ${err.message}`, 'bot');
-            });
+        showToast(`Generating PDF report for Project ${projectName}...`, 'info');
+        window.location.href = url;
     }
 
     function appendMessage(text, sender) {
