@@ -644,30 +644,58 @@ document.addEventListener('DOMContentLoaded', () => {
         btnNavLoad.disabled = true;
         btnNavLoad.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
 
-        const payload = {
-            file_path: selectedFilePath,
-            selected_sheets: Array.from(selectedSheets),
-            removed_columns: {}
-        };
+        if (activeSource === 'local' && localFileObject) {
+            const config = {
+                selected_sheets: Array.from(selectedSheets),
+                removed_columns: {}
+            };
+            const formData = new FormData();
+            formData.append('file', localFileObject);
+            formData.append('config', JSON.stringify(config));
 
-        fetch('/api/sharepoint/load-transformed', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.error) throw new Error(data.error);
-            showToast(data.message, 'success');
-            setTimeout(() => {
-                window.location.href = '/tables';
-            }, 1500);
-        })
-        .catch(err => {
-            showToast(err.message || 'Load failed', 'error');
-            btnNavLoad.disabled = false;
-            btnNavLoad.innerHTML = 'Load';
-        });
+            fetch('/api/local/load-transformed', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                showToast(data.message, 'success');
+                setTimeout(() => {
+                    window.location.href = '/tables';
+                }, 1500);
+            })
+            .catch(err => {
+                showToast(err.message || 'Load failed', 'error');
+                btnNavLoad.disabled = false;
+                btnNavLoad.innerHTML = 'Load';
+            });
+        } else {
+            const payload = {
+                file_path: selectedFilePath,
+                selected_sheets: Array.from(selectedSheets),
+                removed_columns: {}
+            };
+
+            fetch('/api/sharepoint/load-transformed', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) throw new Error(data.error);
+                showToast(data.message, 'success');
+                setTimeout(() => {
+                    window.location.href = '/tables';
+                }, 1500);
+            })
+            .catch(err => {
+                showToast(err.message || 'Load failed', 'error');
+                btnNavLoad.disabled = false;
+                btnNavLoad.innerHTML = 'Load';
+            });
+        }
     }
 
     // ── Submit Transformed Data (Close & Apply) ──

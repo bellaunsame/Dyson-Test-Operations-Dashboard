@@ -692,98 +692,118 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPdfDownloadSidebar.addEventListener('click', () => {
             const activeProj = getActiveProjectContext();
             if (!activeProj) {
-                showToast('Please select or open a project first to export its Gantt report.', 'info');
+                // Fallback: export consolidated report for all projects
+                showToast('No project selected — exporting full consolidated PDF report...', 'info');
+                triggerConsolidatedPdfDownload();
                 return;
             }
             triggerPdfDownload(activeProj);
         });
     }
 
-    // Consolidated PDF Export
-    const btnPdfConsolidated = document.getElementById('btn-pdf-consolidated');
-    const exportProgressModal = document.getElementById('export-progress-modal');
-    const exportProgressBar = document.getElementById('export-progress-bar');
-    const exportProgressMessage = document.getElementById('export-progress-message');
-    const exportProgressPercent = document.getElementById('export-progress-percent');
-    
-    if (btnPdfConsolidated) {
-        btnPdfConsolidated.addEventListener('click', () => {
-            const originalIcon = btnPdfConsolidated.querySelector('i');
-            const originalIconClass = originalIcon ? originalIcon.className : 'fa-solid fa-file-pdf';
-            if (originalIcon) originalIcon.className = 'fa-solid fa-spinner fa-spin';
-            btnPdfConsolidated.classList.add('loading');
-            
-            // 1. Reset and Show Progress Modal
-            if (exportProgressBar) exportProgressBar.style.width = '0%';
-            if (exportProgressPercent) exportProgressPercent.textContent = '0%';
-            if (exportProgressMessage) exportProgressMessage.textContent = 'Initializing...';
-            if (exportProgressModal) exportProgressModal.classList.add('active');
-            
-            let pollInterval = null;
-            
-            const cleanupExportUI = () => {
-                if (exportProgressModal) exportProgressModal.classList.remove('active');
-                if (originalIcon) originalIcon.className = originalIconClass;
-                btnPdfConsolidated.classList.remove('loading');
-            };
-            
-            const triggerConsolidatedDownload = (taskId) => {
-                window.location.href = `/api/export-consolidated/download/${taskId}/Consolidated_Project_Report.pdf`;
-                showToast('Consolidated PDF report downloaded successfully!', 'success');
-                setTimeout(() => {
-                    cleanupExportUI();
-                }, 800);
-            };
-            
-            const pollExportProgress = (taskId) => {
-                pollInterval = setInterval(() => {
-                    fetch(`/api/export-consolidated/progress/${taskId}`)
-                        .then(res => {
-                            if (!res.ok) throw new Error('Task state unavailable');
-                            return res.json();
-                        })
-                        .then(state => {
-                            const progressVal = state.progress || 0;
-                            const msg = state.message || 'Processing...';
-                            
-                            if (exportProgressBar) exportProgressBar.style.width = `${progressVal}%`;
-                            if (exportProgressPercent) exportProgressPercent.textContent = `${progressVal}%`;
-                            if (exportProgressMessage) exportProgressMessage.textContent = msg;
-                            
-                            if (state.status === 'completed') {
-                                clearInterval(pollInterval);
-                                triggerConsolidatedDownload(taskId);
-                            } else if (state.status === 'failed') {
-                                clearInterval(pollInterval);
-                                throw new Error(state.message || 'Server task failed');
-                            }
-                        })
-                        .catch(err => {
-                            clearInterval(pollInterval);
-                            showToast(`Export tracking failed: ${err.message}`, 'error');
-                            cleanupExportUI();
-                        });
-                }, 600);
-            };
-            
-            // 2. Start consolidated export task
-            fetch('/api/export-consolidated/start', { method: 'POST' })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Failed to start consolidated export task');
-                    }
-                    return response.json();
+    // ==========================================
+    // EXCEL FULL REPORT EXPORT
+    // ==========================================
+    const btnExcelExport = document.getElementById('btn-excel-export');
+    if (btnExcelExport) {
+        btnExcelExport.addEventListener('click', () => {
+            const icon = btnExcelExport.querySelector('i');
+            const origClass = icon ? icon.className : 'fa-solid fa-file-excel';
+            if (icon) icon.className = 'fa-solid fa-spinner fa-spin';
+            btnExcelExport.disabled = true;
+
+            showToast('Preparing Excel report for download...', 'info');
+
+            // Use a hidden link to trigger the download
+            fetch('/api/export-excel')
+                .then(res => {
+                    if (!res.ok) return res.json().then(d => { throw new Error(d.error || 'Export failed'); });
+                    return res.blob();
                 })
-                .then(data => {
-                    pollExportProgress(data.task_id);
+                .then(blob => {
+                    const today = new Date().toISOString().slice(0,10);
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `Full_Operations_Report_${today}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+                    showToast('Excel report downloaded successfully!', 'success');
                 })
                 .catch(err => {
-                    showToast(`Consolidated PDF export failed: ${err.message}`, 'error');
-                    console.error('Consolidated PDF Export Error:', err);
-                    cleanupExportUI();
+                    showToast(`Excel export failed: ${err.message}`, 'error');
+                    console.error('Excel Export Error:', err);
+                })
+                .finally(() => {
+                    if (icon) icon.className = origClass;
+                    btnExcelExport.disabled = false;
                 });
         });
     }
+
+    // ==========================================
+    // CONSOLIDATED PDF EXPORT (internal helper)
+    // ==========================================
+    function triggerConsolidatedPdfDownload() {
+        const exportProgressModal = document.getElementById('export-progress-modal');
+        const exportProgressBar = document.getElementById('export-progress-bar');
+        const exportProgressMessage = document.getElementById('export-progress-message');
+        const exportProgressPercent = document.getElementById('export-progress-percent');
+
+        const progressTitle = document.getElementById('export-progress-title');
+        const progressDesc = document.getElementById('export-progress-desc');
+        if (progressTitle) progressTitle.textContent = 'Compiling Full PDF Report';
+        if (progressDesc) progressDesc.textContent = 'Generating timelines and defect summaries for all projects.';
+
+        if (exportProgressBar) exportProgressBar.style.width = '0%';
+        if (exportProgressPercent) exportProgressPercent.textContent = '0%';
+        if (exportProgressMessage) exportProgressMessage.textContent = 'Initializing...';
+        if (exportProgressModal) exportProgressModal.classList.add('active');
+
+        let pollInterval = null;
+        const cleanupExportUI = () => {
+            if (exportProgressModal) exportProgressModal.classList.remove('active');
+        };
+
+        const pollExportProgress = (taskId) => {
+            pollInterval = setInterval(() => {
+                fetch(`/api/export-consolidated/progress/${taskId}`)
+                    .then(res => { if (!res.ok) throw new Error('Task state unavailable'); return res.json(); })
+                    .then(state => {
+                        const progressVal = state.progress || 0;
+                        const msg = state.message || 'Processing...';
+                        if (exportProgressBar) exportProgressBar.style.width = `${progressVal}%`;
+                        if (exportProgressPercent) exportProgressPercent.textContent = `${progressVal}%`;
+                        if (exportProgressMessage) exportProgressMessage.textContent = msg;
+                        if (state.status === 'completed') {
+                            clearInterval(pollInterval);
+                            window.location.href = `/api/export-consolidated/download/${taskId}/Consolidated_Project_Report.pdf`;
+                            showToast('Consolidated PDF downloaded!', 'success');
+                            setTimeout(cleanupExportUI, 800);
+                        } else if (state.status === 'failed') {
+                            clearInterval(pollInterval);
+                            showToast(state.message || 'PDF generation failed', 'error');
+                            cleanupExportUI();
+                        }
+                    })
+                    .catch(err => {
+                        clearInterval(pollInterval);
+                        showToast(`Export tracking failed: ${err.message}`, 'error');
+                        cleanupExportUI();
+                    });
+            }, 600);
+        };
+
+        fetch('/api/export-consolidated/start', { method: 'POST' })
+            .then(r => { if (!r.ok) throw new Error('Failed to start export'); return r.json(); })
+            .then(data => pollExportProgress(data.task_id))
+            .catch(err => {
+                showToast(`PDF export failed: ${err.message}`, 'error');
+                cleanupExportUI();
+            });
+    }
+
 
     // ==========================================
     // EMAIL MODAL & AUTOMATION
@@ -966,9 +986,86 @@ Mail Status: Queued and Sent successfully (Simulated)`;
 
     // Trigger PDF download programmatically
     function triggerPdfDownload(projectName) {
-        const url = `/generate-report?project=${encodeURIComponent(projectName)}`;
-        showToast(`Generating PDF report for Project ${projectName}...`, 'info');
-        window.location.href = url;
+        const comment = sessionStorage.getItem('pdf_comment_' + projectName) || '';
+        
+        // Update Modal Title and Description for Project Export
+        const progressTitle = document.getElementById('export-progress-title');
+        const progressDesc = document.getElementById('export-progress-desc');
+        if (progressTitle) progressTitle.textContent = `Compiling Report for Project ${projectName}`;
+        if (progressDesc) progressDesc.textContent = `Generating timeline, dashboard, and tables for Project ${projectName}.`;
+        
+        // Reset and Show Progress Modal
+        if (exportProgressBar) exportProgressBar.style.width = '0%';
+        if (exportProgressPercent) exportProgressPercent.textContent = '0%';
+        if (exportProgressMessage) exportProgressMessage.textContent = 'Initializing...';
+        if (exportProgressModal) exportProgressModal.classList.add('active');
+        
+        let pollInterval = null;
+        
+        const cleanupExportUI = () => {
+            if (exportProgressModal) exportProgressModal.classList.remove('active');
+        };
+        
+        const triggerDownload = (taskId) => {
+            const filename = `Gantt_Report_${projectName}.pdf`;
+            window.location.href = `/api/export-project/download/${taskId}/${encodeURIComponent(filename)}`;
+            showToast(`PDF report for Project ${projectName} downloaded successfully!`, 'success');
+            setTimeout(() => {
+                cleanupExportUI();
+            }, 800);
+        };
+        
+        const pollExportProgress = (taskId) => {
+            pollInterval = setInterval(() => {
+                fetch(`/api/export-project/progress/${taskId}`)
+                    .then(res => {
+                        if (!res.ok) throw new Error('Task state unavailable');
+                        return res.json();
+                    })
+                    .then(state => {
+                        const progressVal = state.progress || 0;
+                        const msg = state.message || 'Processing...';
+                        
+                        if (exportProgressBar) exportProgressBar.style.width = `${progressVal}%`;
+                        if (exportProgressPercent) exportProgressPercent.textContent = `${progressVal}%`;
+                        if (exportProgressMessage) exportProgressMessage.textContent = msg;
+                        
+                        if (state.status === 'completed') {
+                            clearInterval(pollInterval);
+                            triggerDownload(taskId);
+                        } else if (state.status === 'failed') {
+                            clearInterval(pollInterval);
+                            throw new Error(state.message || 'Server task failed');
+                        }
+                    })
+                    .catch(err => {
+                        clearInterval(pollInterval);
+                        showToast(`Export tracking failed: ${err.message}`, 'error');
+                        cleanupExportUI();
+                    });
+            }, 600);
+        };
+        
+        // Start export task
+        fetch('/api/export-project/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project: projectName, comment: comment })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to start PDF export task');
+            }
+            return response.json();
+        })
+        .then(data => {
+            pollExportProgress(data.task_id);
+        })
+        .catch(err => {
+            showToast(`PDF export failed: ${err.message}`, 'error');
+            console.error('PDF Export Error:', err);
+            cleanupExportUI();
+        });
     }
 
     function appendMessage(text, sender) {

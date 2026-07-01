@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const projectSelect = document.getElementById('gantt-project-select');
     const categorySelect = document.getElementById('gantt-category-select');
     const scaleButtons = document.querySelectorAll('.scale-btn');
-    const btnExportPdf = document.getElementById('btn-export-pdf');
+    const btnSubmitComment = document.getElementById('btn-submit-comment');
     const pdfComment = document.getElementById('pdf-comment');
     const emptyState = document.getElementById('gantt-empty-state');
     const loadingState = document.getElementById('gantt-loading');
@@ -38,50 +38,58 @@ document.addEventListener('DOMContentLoaded', () => {
         projectSelect.addEventListener('change', (e) => {
             currentProjectName = e.target.value;
             if (currentProjectName) {
-                btnExportPdf.style.pointerEvents = 'auto';
-                btnExportPdf.style.opacity = '1';
-                updateExportLink();
+                if (btnSubmitComment) {
+                    btnSubmitComment.style.pointerEvents = 'auto';
+                    btnSubmitComment.style.opacity = '1';
+                }
+                const savedComment = sessionStorage.getItem('pdf_comment_' + currentProjectName) || '';
+                if (pdfComment) pdfComment.value = savedComment;
                 loadProjectData(currentProjectName);
             } else {
-                btnExportPdf.href = '#';
-                btnExportPdf.style.pointerEvents = 'none';
-                btnExportPdf.style.opacity = '0.4';
+                if (pdfComment) pdfComment.value = '';
+                if (btnSubmitComment) {
+                    btnSubmitComment.style.pointerEvents = 'none';
+                    btnSubmitComment.style.opacity = '0.4';
+                }
                 resetToEmptyState();
             }
         });
 
-        if (pdfComment) {
-            pdfComment.addEventListener('input', updateExportLink);
+        // Submit comment handler
+        if (btnSubmitComment) {
+            btnSubmitComment.addEventListener('click', () => {
+                if (!currentProjectName) return;
+                const commentValue = pdfComment ? (pdfComment.value || '').trim() : '';
+                sessionStorage.setItem('pdf_comment_' + currentProjectName, commentValue);
+                if (window.showToast) {
+                    window.showToast(`Comment saved for Project ${currentProjectName}. It will be included when exporting the PDF report!`, 'success');
+                }
+            });
         }
 
         // Category change handler
-        categorySelect.addEventListener('change', (e) => {
-            currentCategory = e.target.value;
-            if (rawRecords.length > 0) {
-                renderGanttChart();
-            }
-        });
-
-        // Scale buttons handler
-        scaleButtons.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                scaleButtons.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentScale = btn.getAttribute('data-scale');
+        if (categorySelect) {
+            categorySelect.addEventListener('change', (e) => {
+                currentCategory = e.target.value;
                 if (rawRecords.length > 0) {
                     renderGanttChart();
                 }
             });
-        });
-    }
+        }
 
-    function updateExportLink() {
-        if (!btnExportPdf) return;
-        const projectParam = currentProjectName ? `project=${encodeURIComponent(currentProjectName)}` : '';
-        const commentValue = pdfComment ? (pdfComment.value || '').trim() : '';
-        const commentParam = commentValue ? `comment=${encodeURIComponent(commentValue)}` : '';
-        const queryParts = [projectParam, commentParam].filter(Boolean).join('&');
-        btnExportPdf.href = queryParts ? `/generate-report?${queryParts}` : '#';
+        // Scale buttons handler
+        if (scaleButtons) {
+            scaleButtons.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    scaleButtons.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentScale = btn.getAttribute('data-scale');
+                    if (rawRecords.length > 0) {
+                        renderGanttChart();
+                    }
+                });
+            });
+        }
     }
 
     // Fetch active projects to populate the select dropdown

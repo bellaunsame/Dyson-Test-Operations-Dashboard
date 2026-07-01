@@ -1279,23 +1279,24 @@ def api_chat():
 
 
 # --- GANTT CHART GENERATION ---
-def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark', timeline_type='weeks', dpi=300):
-    """Generates a multi-row project Gantt timeline image using Matplotlib and saves it."""
-    def parse_date(value):
-        if not value:
-            return None
-        if isinstance(value, datetime.datetime):
-            return value
-        if isinstance(value, datetime.date):
-            return datetime.datetime.combine(value, datetime.time.min)
+def parse_date(value):
+    if not value:
+        return None
+    if isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, datetime.date):
+        return datetime.datetime.combine(value, datetime.time.min)
+    try:
+        return datetime.datetime.strptime(str(value).strip(), "%Y-%m-%d")
+    except Exception:
         try:
-            return datetime.datetime.strptime(value, "%Y-%m-%d")
+            return datetime.datetime.fromisoformat(str(value).strip())
         except Exception:
-            try:
-                return datetime.datetime.fromisoformat(value)
-            except Exception:
-                return None
+            return None
 
+# --- GANTT CHART GENERATION ---
+def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark', timeline_type='weeks', dpi=300, start_date_bound=None, end_date_bound=None):
+    """Generates a multi-row project Gantt timeline image using Matplotlib and saves it."""
     def wrap_label(text, width=44):
         if not text:
             return ""
@@ -1332,18 +1333,13 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
     }
 
     rows = []
-    min_date = None
-    max_date = None
+    min_date = start_date_bound
+    max_date = end_date_bound
 
     for record in records:
         start_date = parse_date(record.get("Start Date"))
         if not start_date:
             continue
-
-        if min_date is None or start_date < min_date:
-            min_date = start_date
-        if max_date is None or start_date > max_date:
-            max_date = start_date
 
         phases = [
             ("Proto", int(record.get("Proto Weeks", 0) or 0), int(record.get("Proto Days", 0) or 0)),
@@ -1369,18 +1365,62 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
                 "color": phase_colors.get(phase_name, "#999999")
             }
             bars.append(bar)
-            if min_date is None or bar["start"] < min_date:
-                min_date = bar["start"]
-            if max_date is None or phase_end > max_date:
-                max_date = phase_end
             phase_start = phase_end
 
-        if bars:
-            rows.append({"label": label, "bars": bars})
+        # Calculate duration summary text column
+        duration_parts = []
+        for phase_name, weeks, days in phases:
+            qty = int(record.get(f"{phase_name} Qty", 0) or 0)
+            if weeks > 0 or days > 0:
+                dur_str = f"{weeks}w" if weeks > 0 else ""
+                if days > 0:
+                    dur_str += f"{days}d"
+                duration_parts.append(f"{phase_name[0]}:{dur_str}(Q:{qty})")
+        duration_summary = " | ".join(duration_parts)
+
+        # Filter and clamp if bounds are specified
+        if start_date_bound and end_date_bound:
+            overlapping_bars = []
+            for bar in bars:
+                bar_start = bar["start"]
+                bar_end = bar_start + datetime.timedelta(days=bar["duration"])
+                if bar_start < end_date_bound and bar_end > start_date_bound:
+                    clamped_start = max(bar_start, start_date_bound)
+                    clamped_end = min(bar_end, end_date_bound)
+                    clamped_duration = (clamped_end - clamped_start).days
+                    if clamped_duration > 0:
+                        overlapping_bars.append({
+                            "phase": bar["phase"],
+                            "start": clamped_start,
+                            "duration": clamped_duration,
+                            "color": bar["color"]
+                        })
+            if overlapping_bars:
+                rows.append({
+                    "label": label,
+                    "bars": overlapping_bars,
+                    "category": record.get("Category", "General"),
+                    "duration_summary": duration_summary
+                })
+        else:
+            if bars:
+                rows.append({
+                    "label": label,
+                    "bars": bars,
+                    "category": record.get("Category", "General"),
+                    "duration_summary": duration_summary
+                })
+                # Keep track of min/max if bounds are not restricted
+                for bar in bars:
+                    bar_end = bar["start"] + datetime.timedelta(days=bar["duration"])
+                    if min_date is None or bar["start"] < min_date:
+                        min_date = bar["start"]
+                    if max_date is None or bar_end > max_date:
+                        max_date = bar_end
 
     if not rows:
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.text(0.5, 0.5, "No valid timeline data to display.",
+        ax.text(0.5, 0.5, f"No active timeline data in this range for Project {project_name}" if project_name else "No active timeline data to display",
                 horizontalalignment='center', verticalalignment='center', fontsize=12)
         ax.set_axis_off()
         plt.savefig(filepath, dpi=dpi, bbox_inches='tight')
@@ -1408,7 +1448,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
     # Use a two-column layout: left sidebar for labels, right for the gantt
     from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
     fig = plt.figure(figsize=(12, fig_height), facecolor=bg_color)
-    gs = fig.add_gridspec(1, 2, width_ratios=[0.28, 0.72], wspace=0.02)
+    gs = fig.add_gridspec(1, 2, width_ratios=[0.38, 0.62], wspace=0.02)
     ax_left = fig.add_subplot(gs[0, 0])
     ax = fig.add_subplot(gs[0, 1])
 
@@ -1420,6 +1460,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
     ax_left.invert_yaxis()
     ax_left.xaxis.set_visible(False)
     ax_left.yaxis.set_visible(False)
+    ax_left.set_xlim(0, 1)
 
     # Draw category groups on the left sidebar
     categories = [r.get('category', '') for r in rows]
@@ -1429,16 +1470,24 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
 
     for cat, indices in group_positions.items():
         mid = (indices[0] + indices[-1]) / 2
-        ax_left.text(0.05, mid, str(cat), va='center', ha='left', fontsize=11, color=fg_text, weight='bold')
+        ax_left.text(0.02, mid, str(cat), va='center', ha='left', fontsize=11, color=fg_text, weight='bold')
 
-    # Also print each row's short method label under the category area
+    # Print each row's short method label and duration text
     for y, row in enumerate(rows):
         short = row['label'].split('\n')[0]
-        ax_left.text(0.05, y + 0.28, short, va='center', ha='left', fontsize=8, color=fg_sub)
+        ax_left.text(0.02, y + 0.28, short, va='center', ha='left', fontsize=8, color=fg_sub)
+        
+        dur_summary = row.get("duration_summary", "")
+        ax_left.text(0.52, y, dur_summary, va='center', ha='left', fontsize=8, color=fg_text, weight='semibold')
 
     # Right axis: Gantt chart area
-    start_num = mdates.date2num(min_date - datetime.timedelta(days=1))
-    end_num = mdates.date2num(max_date + datetime.timedelta(days=3))
+    if start_date_bound and end_date_bound:
+        start_num = mdates.date2num(start_date_bound)
+        end_num = mdates.date2num(end_date_bound)
+    else:
+        start_num = mdates.date2num(min_date - datetime.timedelta(days=1))
+        end_num = mdates.date2num(max_date + datetime.timedelta(days=3))
+        
     ax.set_xlim(start_num, end_num)
     ax.set_ylim(-0.5, len(rows) - 0.5)
     ax.invert_yaxis()
@@ -1471,7 +1520,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
             ax.axvline(x, color=grid_color, linewidth=1.0, alpha=0.7)
             year_iter += 1
 
-    # Month labels above the gantt area (only for days and weeks views to avoid clutter)
+    # Month labels above the gantt area
     if timeline_type in ['days', 'weeks']:
         month_iter = datetime.date(min_date.year, min_date.month, 1)
         top_y = -0.8
@@ -1482,7 +1531,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
             ax.text(mdates.date2num(month_mid), top_y, month_start.strftime('%B'), ha='center', va='bottom', color=fg_text, fontsize=11, fontweight='bold')
             month_iter = next_month.date()
 
-    # Draw rounded bars
+    # Draw rounded bars (without labels inside)
     for y, row in enumerate(rows):
         for bar in row['bars']:
             x = mdates.date2num(bar['start'])
@@ -1493,16 +1542,8 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
                                  boxstyle='round,pad=0.02,rounding_size=6',
                                  linewidth=0, facecolor=bar['color'], alpha=0.98)
             ax.add_patch(box)
-            # small outline to make bars pop
             edge = Rectangle((x, y_pos), width, height, linewidth=0.6, edgecolor='#083a4a' if theme == 'dark' else '#cbd5e1', facecolor='none')
             ax.add_patch(edge)
-            # label inside if enough space
-            try:
-                label_text = row['label'].split('\n')[0]
-                if width >= 6:
-                    ax.text(x + 0.4, y, label_text, va='center', ha='left', color='white', fontsize=8, fontweight='bold')
-            except Exception:
-                pass
 
     # X-axis formatting
     ax.xaxis_date()
@@ -1549,78 +1590,262 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
 
 
 # --- PDF REPORT DYNAMIC PAGE NUMBERING ---
-class NumberedCanvas(canvas.Canvas):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._saved_page_states = []
+# --- PDF CONVERSION HELPER ---
+def convert_html_to_pdf(html_path, pdf_path):
+    """Converts local HTML file to PDF by calling an installed Chromium-based browser (Edge/Chrome/Chromium) headlessly."""
+    import subprocess
+    import shutil
+    import os
+    import platform
+    
+    browser_path = None
+    system = platform.system()
+    
+    if system == "Windows":
+        # Check standard installation locations for Edge and Chrome
+        paths = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+        ]
+        for p in paths:
+            if os.path.exists(p):
+                browser_path = p
+                break
+    elif system == "Darwin": # macOS
+        paths = [
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        ]
+        for p in paths:
+            if os.path.exists(p):
+                browser_path = p
+                break
+    else: # Linux
+        # Search PATH
+        for name in ["google-chrome", "chrome", "chromium", "chromium-browser", "microsoft-edge", "edge"]:
+            path = shutil.which(name)
+            if path:
+                browser_path = path
+                break
+                
+    if not browser_path:
+        raise RuntimeError("No Chromium-based browser (Microsoft Edge, Google Chrome, or Chromium) was detected on this system. Please make sure one is installed.")
 
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
+    # Create an isolated temp user-data-dir so headless Edge doesn't try to
+    # reuse or lock-conflict with an existing running browser session on Windows.
+    import tempfile
+    user_data_dir = tempfile.mkdtemp(prefix="edge_headless_")
 
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_page_decorations(num_pages)
-            super().showPage()
-        super().save()
+    file_url = "file:///" + os.path.abspath(html_path).replace("\\", "/")
 
-    def draw_page_decorations(self, page_count):
-        self.saveState()
-        self.setFont("Helvetica", 8)
-        self.setFillColor(colors.HexColor("#64748b"))
+    args = [
+        browser_path,
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--no-pdf-header-footer",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-default-apps",
+        "--disable-sync",
+        "--disable-translate",
+        "--hide-scrollbars",
+        "--metrics-recording-only",
+        "--mute-audio",
+        "--no-first-run",
+        f"--user-data-dir={user_data_dir}",
+        f"--print-to-pdf={pdf_path}",
+        file_url
+    ]
+    
+    startupinfo = None
+    if system == "Windows":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         
-        # Top Accent Double Stripe Bar
-        self.setFillColor(colors.HexColor("#0f172a")) # Primary Slate 900
-        self.rect(0, 782, 612, 10, fill=True, stroke=False)
-        self.setFillColor(colors.HexColor("#0284c7")) # Accent Sky 600
-        self.rect(0, 778, 612, 4, fill=True, stroke=False)
-        
-        # Header line
-        self.setStrokeColor(colors.HexColor("#e2e8f0"))
-        self.setLineWidth(0.75)
-        self.line(40, 745, 572, 745)
-        
-        self.setFillColor(colors.HexColor("#0f172a"))
-        self.setFont("Helvetica-Bold", 8)
-        
-        # Draw Excel report name if available, otherwise default
-        excel_name = getattr(self, 'excel_filename', '')
-        header_left = f"EXCEL REPORT: {excel_name.upper()}" if excel_name else "TEST OPERATIONS DASHBOARD"
-        self.drawString(40, 750, header_left)
-        
-        self.setFont("Helvetica", 8)
-        self.setFillColor(colors.HexColor("#64748b"))
-        self.drawRightString(572, 750, "PROJECT STATUS REPORT")
-            
-        # Footer
-        self.line(40, 45, 572, 45) # Footer line
-        page_text = f"Page {self._pageNumber} of {page_count}"
-        self.drawRightString(572, 32, page_text)
-        self.drawString(40, 32, "CONFIDENTIAL - INTERNAL USE ONLY")
-        self.drawCentredString(306, 32, datetime.datetime.now().strftime("%Y-%m-%d"))
-        
-        self.restoreState()
+    try:
+        result = subprocess.run(
+            args, startupinfo=startupinfo,
+            capture_output=True, text=True,
+            timeout=120
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Headless browser timed out after 120s. This may be caused by a locked browser profile or missing font/resource. Try closing all Edge/Chrome windows and retrying.")
+    finally:
+        # Clean up the isolated temp profile directory
+        try:
+            import shutil as _shutil
+            _shutil.rmtree(user_data_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    if result.returncode != 0:
+        raise RuntimeError(f"Headless browser PDF conversion failed (exit {result.returncode}): {result.stderr[:600]}")
+    if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
+        raise RuntimeError("Headless browser ran but produced no PDF output. Check that the HTML template is valid.")
+    return True
 
 
 # --- PDF REPORT GENERATION ---
-def generate_pdf_report(filename, project_name=None, comment=None):
-    """Generates a styled Test Operations PDF report containing a Gantt chart and rejected products."""
-    # Fetch records filtered by project
+def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None):
+    """Generates a styled Test Operations PDF report by rendering a Jinja HTML template and using Edge/Chrome headless to print to PDF."""
+    if progress_callback:
+        progress_callback(10, "Analyzing project data...")
+        
     if project_name:
         records_dict = ExcelDataStore.get_project_rows(project_name)
     else:
         records_dict = []
         for p in ExcelDataStore.get_projects():
             records_dict.extend(ExcelDataStore.get_project_rows(p["name"]))
+            
+    # Calculate global date boundaries
+    min_date = None
+    max_date = None
+    for r in records_dict:
+        start_date = parse_date(r.get("Start Date"))
+        if not start_date:
+            continue
         
-    # 1. Generate the Gantt Chart Image
-    gantt_image_path = os.path.join(UPLOAD_FOLDER, "gantt_chart_report.png")
-    generate_gantt_chart_image(records_dict, gantt_image_path, project_name, theme='light')
+        phases = [
+            ("Proto", int(r.get("Proto Weeks", 0) or 0), int(r.get("Proto Days", 0) or 0)),
+            ("DVT", int(r.get("DVT Weeks", 0) or 0), int(r.get("DVT Days", 0) or 0)),
+            ("EVT", int(r.get("EVT Weeks", 0) or 0), int(r.get("EVT Days", 0) or 0)),
+            ("PVT", int(r.get("PVT Weeks", 0) or 0), int(r.get("PVT Days", 0) or 0))
+        ]
+        
+        if min_date is None or start_date < min_date:
+            min_date = start_date
+            
+        phase_start = start_date
+        for phase_name, w, d in phases:
+            dur = w * 7 + d
+            if dur > 0:
+                phase_end = phase_start + datetime.timedelta(days=dur)
+                if max_date is None or phase_end > max_date:
+                    max_date = phase_end
+                phase_start = phase_end
+            else:
+                if max_date is None or phase_start > max_date:
+                    max_date = phase_start
+
+    # Mathematical timeline slicing into 4-week chunks (28 days)
+    timeline_chunks = []
+    phase_colors = {
+        "Proto": "#8E44AD",
+        "DVT": "#2980B9",
+        "EVT": "#27AE60",
+        "PVT": "#D35400"
+    }
     
-    # Extract Excel filename
-    excel_filename = ""
+    if progress_callback:
+        progress_callback(30, "Calculating visual timeline chunks...")
+
+    if min_date and max_date:
+        current_start = min_date
+        chunk_idx = 1
+        while current_start < max_date:
+            current_end = current_start + datetime.timedelta(days=28)
+            chunk_rows = []
+            
+            for r in records_dict:
+                start_date = parse_date(r.get("Start Date"))
+                if not start_date:
+                    continue
+                
+                phases = [
+                    ("Proto", int(r.get("Proto Weeks", 0) or 0), int(r.get("Proto Days", 0) or 0), int(r.get("Proto Qty", 0) or 0)),
+                    ("DVT", int(r.get("DVT Weeks", 0) or 0), int(r.get("DVT Days", 0) or 0), int(r.get("DVT Qty", 0) or 0)),
+                    ("EVT", int(r.get("EVT Weeks", 0) or 0), int(r.get("EVT Days", 0) or 0), int(r.get("EVT Qty", 0) or 0)),
+                    ("PVT", int(r.get("PVT Weeks", 0) or 0), int(r.get("PVT Days", 0) or 0), int(r.get("PVT Qty", 0) or 0))
+                ]
+                
+                row_bars = []
+                phase_start = start_date
+                for phase_name, w, d, qty in phases:
+                    dur = w * 7 + d
+                    if dur <= 0:
+                        continue
+                    phase_end = phase_start + datetime.timedelta(days=dur)
+                    
+                    if phase_start < current_end and phase_end > current_start:
+                        clamped_start = max(phase_start, current_start)
+                        clamped_end = min(phase_end, current_end)
+                        clamped_dur = (clamped_end - clamped_start).days
+                        
+                        if clamped_dur > 0:
+                            offset_days = (clamped_start - current_start).days
+                            left_percent = (offset_days / 28.0) * 100.0
+                            width_percent = (clamped_dur / 28.0) * 100.0
+                            
+                            weeks_val = clamped_dur // 7
+                            days_val = clamped_dur % 7
+                            dur_text = f"{weeks_val}w" if weeks_val > 0 else ""
+                            if days_val > 0:
+                                dur_text += f"{days_val}d"
+                            if not dur_text:
+                                dur_text = "0d"
+                                
+                            row_bars.append({
+                                "phase": phase_name,
+                                "color": phase_colors.get(phase_name, "#64748b"),
+                                "left_percent": round(left_percent, 2),
+                                "width_percent": round(width_percent, 2),
+                                "duration_text": dur_text,
+                                "qty": qty
+                            })
+                    phase_start = phase_end
+                    
+                if row_bars:
+                    chunk_rows.append({
+                        "method": r.get("Test Method", "Untitled"),
+                        "number": r.get("Test Number", "Unknown"),
+                        "category": r.get("Category", "General"),
+                        "bars": row_bars
+                    })
+                    
+            if chunk_rows:
+                timeline_chunks.append({
+                    "start_str": current_start.strftime("%Y-%m-%d"),
+                    "end_str": (current_end - datetime.timedelta(days=1)).strftime("%Y-%m-%d"),
+                    "rows": chunk_rows
+                })
+            current_start = current_end
+            chunk_idx += 1
+
+    if progress_callback:
+        progress_callback(50, "Preparing executive summary...")
+
+    category_summary = {}
+    for r in records_dict:
+        cat = r.get("Category", "General")
+        category_summary.setdefault(cat, {
+            "tasks_count": 0,
+            "defects_count": 0,
+            "total_qty": 0
+        })
+        category_summary[cat]["tasks_count"] += 1
+        category_summary[cat]["defects_count"] += int(r.get("Defect Qty", 0) or 0)
+        category_summary[cat]["total_qty"] += sum(
+            int(r.get(f"{p} Qty", 0) or 0) for p in ["Proto", "DVT", "EVT", "PVT"]
+        )
+
+    records_by_cat = {}
+    for r in records_dict:
+        cat = r.get("Category", "General")
+        records_by_cat.setdefault(cat, []).append(r)
+
+    rejected_records = [
+        r for r in records_dict if str(r.get("Comments", "")).strip() != "" or int(r.get("Defect Qty", 0)) > 0
+    ]
+    rej_by_cat = {}
+    for r in rejected_records:
+        cat = r.get("Category", "General")
+        rej_by_cat.setdefault(cat, []).append(r)
+
+    excel_filename = "tasks.xlsx"
     if os.path.exists(SYNC_CONFIG_PATH):
         try:
             with open(SYNC_CONFIG_PATH, 'r') as f:
@@ -1631,586 +1856,121 @@ def generate_pdf_report(filename, project_name=None, comment=None):
             excel_filename = os.path.basename(path)
         except Exception:
             pass
-    if not excel_filename:
-        excel_filename = "tasks.xlsx"
-        
-    doc = SimpleDocTemplate(filename, pagesize=letter,
-                            rightMargin=40, leftMargin=40, topMargin=60, bottomMargin=60)
-    story = []
-    styles = getSampleStyleSheet()
-    
-    # Custom color palette
-    primary_color = colors.HexColor("#0f172a")
-    secondary_color = colors.HexColor("#475569")
-    accent_color = colors.HexColor("#0284c7")
-    bg_light = colors.HexColor("#f8fafc")
-    border_color = colors.HexColor("#e2e8f0")
-    danger_red = colors.HexColor("#e11d48")
-    
-    title_style = ParagraphStyle(
-        'CampTitle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        leading=28,
-        textColor=primary_color,
-        fontName='Helvetica-Bold',
-        spaceAfter=4
-    )
-    
-    subtitle_style = ParagraphStyle(
-        'CampSubtitle',
-        parent=styles['Normal'],
-        fontSize=9,
-        leading=13,
-        textColor=secondary_color,
-        fontName='Helvetica',
-        spaceAfter=15
-    )
-    
-    section_title_style = ParagraphStyle(
-        'CampSection',
-        parent=styles['Heading2'],
-        fontSize=12,
-        leading=16,
-        textColor=primary_color,
-        fontName='Helvetica-Bold',
-        spaceBefore=14,
-        spaceAfter=8,
-        keepWithNext=True
-    )
-    
-    cell_header = ParagraphStyle(
-        'CampHeader',
-        parent=styles['Normal'],
-        fontSize=8,
-        leading=10,
-        textColor=colors.white,
-        fontName='Helvetica-Bold'
-    )
-    
-    cell_style = ParagraphStyle(
-        'CampCell',
-        parent=styles['Normal'],
-        fontSize=8,
-        leading=11,
-        textColor=primary_color,
-        fontName='Helvetica'
-    )
-    
-    cell_bold = ParagraphStyle(
-        'CampCellBold',
-        parent=styles['Normal'],
-        fontSize=8,
-        leading=11,
-        textColor=danger_red,
-        fontName='Helvetica-Bold'
-    )
-    
-    def create_section_header(title_text):
-        p = Paragraph(title_text, section_title_style)
-        t = Table([[p]], colWidths=[532])
-        t.setStyle(TableStyle([
-            ('LINEBELOW', (0,0), (-1,-1), 1.5, accent_color),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-            ('TOPPADDING', (0,0), (-1,-1), 10),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-        ]))
-        return t
 
-    # Header Title
-    doc_title = f"Project Status Report - Project {project_name}" if project_name else "Daily Test Operations Report"
-    story.append(Paragraph(doc_title, title_style))
-    story.append(Paragraph(f"Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Confidential Operations Data", subtitle_style))
+    context = {
+        "title": f"Project Status Report - Project {project_name}" if project_name else "Daily Test Operations Report",
+        "project_name": project_name or "All Active Projects",
+        "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "excel_filename": excel_filename,
+        "total_records": len(records_dict),
+        "total_defects": sum(int(r.get('Defect Qty', 0) or 0) for r in records_dict),
+        "total_comments": sum(1 for r in records_dict if str(r.get('Comments', '')).strip()),
+        "category_summary": category_summary,
+        "comment": comment,
+        "timeline_chunks": timeline_chunks,
+        "records_by_cat": records_by_cat,
+        "rejected_records": rejected_records,
+        "rej_by_cat": rej_by_cat
+    }
 
-    # KPI summary cards
-    total_records = len(records_dict)
-    total_defects = sum(int(r.get('Defect Qty', 0) or 0) for r in records_dict)
-    total_comments = sum(1 for r in records_dict if str(r.get('Comments', '')).strip())
+    if progress_callback:
+        progress_callback(75, "Rendering HTML report...")
 
-    kpi_table_data = [
-        [
-            Paragraph(f"<font size=7.5 color='#64748b'>PROJECT NAME</font><br/><font size=11 color='#0f172a'><b>{project_name or 'ALL PROJECTS'}</b></font>", cell_style),
-            Paragraph(f"<font size=7.5 color='#64748b'>TOTAL TASKS</font><br/><font size=11 color='#0f172a'><b>{total_records}</b></font>", cell_style),
-            Paragraph(f"<font size=7.5 color='#64748b'>TOTAL DEFECTS</font><br/><font size=11 color='#e11d48'><b>{total_defects}</b></font>", cell_style),
-            Paragraph(f"<font size=7.5 color='#64748b'>REJECTIONS</font><br/><font size=11 color='#d97706'><b>{total_comments}</b></font>", cell_style),
-        ]
-    ]
-    kpi_table = Table(kpi_table_data, colWidths=[133, 133, 133, 133])
-    kpi_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), bg_light),
-        ('BOX', (0,0), (-1,-1), 1, border_color),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, border_color),
-        ('TOPPADDING', (0,0), (-1,-1), 8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-        ('LEFTPADDING', (0,0), (-1,-1), 10),
-        ('RIGHTPADDING', (0,0), (-1,-1), 10),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ]))
-    story.append(kpi_table)
-    story.append(Spacer(1, 10))
+    with app.app_context():
+        html_content = render_template("pdf_report.html", **context)
+    temp_html_path = filename.replace(".pdf", ".html")
+    with open(temp_html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
 
-    if comment and str(comment).strip():
-        story.append(create_section_header("Report Comment"))
-        story.append(Spacer(1, 4))
-        story.append(Paragraph(str(comment).strip().replace('\n', '<br/>'), subtitle_style))
-        story.append(Spacer(1, 6))
+    if progress_callback:
+        progress_callback(90, "Compiling PDF document via headless browser...")
 
-    story.append(create_section_header("Project Gantt Timeline"))
-    story.append(Spacer(1, 4))
-    
-    # Wrap Gantt chart image in a table with a subtle border
-    gantt_table = Table([[Image(gantt_image_path, width=524, height=275)]], colWidths=[532])
-    gantt_table.setStyle(TableStyle([
-        ('BOX', (0,0), (-1,-1), 1, border_color),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-        ('LEFTPADDING', (0,0), (-1,-1), 3),
-        ('RIGHTPADDING', (0,0), (-1,-1), 3),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ]))
-    story.append(gantt_table)
-    story.append(Spacer(1, 12))
-
-    story.append(create_section_header("Test Records Summary"))
-    story.append(Spacer(1, 6))
-    
-    all_table_data = [[
-        Paragraph("#", cell_header),
-        Paragraph("Category", cell_header),
-        Paragraph("Test Method", cell_header),
-        Paragraph("Test #", cell_header),
-        Paragraph("Proto", cell_header),
-        Paragraph("DVT", cell_header),
-        Paragraph("EVT", cell_header),
-        Paragraph("PVT", cell_header),
-        Paragraph("Defect", cell_header),
-        Paragraph("Rejection Comment/s", cell_header)
-    ]]
-    for idx, r in enumerate(records_dict, 1):
-        defect_qty = r.get("Defect Qty", 0)
-        defect_style = cell_bold if defect_qty and int(defect_qty) > 0 else cell_style
-        all_table_data.append([
-            Paragraph(str(idx), cell_style),
-            Paragraph(r.get("Category", ""), cell_style),
-            Paragraph(r.get("Test Method", ""), cell_style),
-            Paragraph(r.get("Test Number", ""), cell_style),
-            Paragraph(f"{r.get('Proto Weeks',0)}w {r.get('Proto Days',0)}d<br/><font color='#64748b'>Qty: {r.get('Proto Qty',0)}</font>", cell_style),
-            Paragraph(f"{r.get('DVT Weeks',0)}w {r.get('DVT Days',0)}d<br/><font color='#64748b'>Qty: {r.get('DVT Qty',0)}</font>", cell_style),
-            Paragraph(f"{r.get('EVT Weeks',0)}w {r.get('EVT Days',0)}d<br/><font color='#64748b'>Qty: {r.get('EVT Qty',0)}</font>", cell_style),
-            Paragraph(f"{r.get('PVT Weeks',0)}w {r.get('PVT Days',0)}d<br/><font color='#64748b'>Qty: {r.get('PVT Qty',0)}</font>", cell_style),
-            Paragraph(str(defect_qty), defect_style),
-            Paragraph(r.get("Comments", "-") or "-", cell_bold if r.get("Comments") else cell_style)
-        ])
-    if not records_dict:
-        all_table_data.append([Paragraph("No records found.", cell_style)] + [Paragraph("-", cell_style)] * 9)
-
-    all_table = Table(all_table_data, colWidths=[15, 70, 80, 45, 52, 52, 52, 52, 30, 84])
-    all_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), primary_color),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('ALIGN', (0,0), (0,-1), 'CENTER'),
-        ('ALIGN', (8,0), (8,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LINEBELOW', (0,0), (-1,0), 1, primary_color),
-        ('LINEBELOW', (0,1), (-1,-1), 0.5, border_color),
-        ('TOPPADDING', (0,0), (-1,-1), 5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-        ('LEFTPADDING', (0,0), (-1,-1), 4),
-        ('RIGHTPADDING', (0,0), (-1,-1), 4),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, bg_light])
-    ]))
-    story.append(all_table)
-    story.append(Spacer(1, 14))
-
-    # Rejections-only sub-table
-    rejected_records = [r for r in records_dict if str(r.get("Comments", "")).strip() != "" or int(r.get("Defect Qty", 0)) > 0]
-    story.append(create_section_header("Rejected Products Inventory"))
-    story.append(Spacer(1, 6))
-    
-    table_data = [[
-        Paragraph("Category", cell_header),
-        Paragraph("Test Method", cell_header),
-        Paragraph("Test Number", cell_header),
-        Paragraph("Defect Qty", cell_header),
-        Paragraph("Rejection Comment/s", cell_header)
-    ]]
-    if rejected_records:
-        for r in rejected_records:
-            table_data.append([
-                Paragraph(r.get("Category", ""), cell_style),
-                Paragraph(r.get("Test Method", ""), cell_style),
-                Paragraph(r.get("Test Number", ""), cell_style),
-                Paragraph(str(r.get("Defect Qty", 0)), cell_bold),
-                Paragraph(r.get("Comments", "") or "-", cell_bold)
-            ])
-    else:
-        table_data.append([
-            Paragraph("No rejected products recorded for this project.", cell_style),
-            Paragraph("-", cell_style), Paragraph("-", cell_style),
-            Paragraph("-", cell_style), Paragraph("-", cell_style)
-        ])
-
-    tasks_table = Table(table_data, colWidths=[100, 110, 65, 55, 202])
-    tasks_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), primary_color),
-        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LINEBELOW', (0,0), (-1,0), 1, primary_color),
-        ('LINEBELOW', (0,1), (-1,-1), 0.5, border_color),
-        ('TOPPADDING', (0,0), (-1,-1), 5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-        ('LEFTPADDING', (0,0), (-1,-1), 4),
-        ('RIGHTPADDING', (0,0), (-1,-1), 4),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, bg_light])
-    ]))
-    story.append(tasks_table)
-    
-    # Set the excel_filename on NumberedCanvas class so it can be accessed during build
-    NumberedCanvas.excel_filename = excel_filename
-    doc.build(story, canvasmaker=NumberedCanvas)
+    try:
+        convert_html_to_pdf(temp_html_path, filename)
+        if progress_callback:
+            progress_callback(100, "Completed!")
+    finally:
+        try:
+            if os.path.exists(temp_html_path):
+                os.remove(temp_html_path)
+        except Exception:
+            pass
 
 
 # --- CONSOLIDATED PDF REPORT GENERATION ---
-def render_gantt_task_module(records_dict, img_path, project_name, timeline_type, dpi):
-    try:
-        generate_gantt_chart_image(records_dict, img_path, project_name=project_name, theme='light', timeline_type=timeline_type, dpi=dpi)
-        return True
-    except Exception as e:
-        print(f"Error rendering Gantt chart {project_name} ({timeline_type}): {e}")
-        return False
-
 def generate_consolidated_pdf_report(filename, progress_callback=None):
-    """Generates a consolidated PDF report for ALL active projects, displaying multiple timelines and defect tables."""
-    # Fetch all active projects
+    """Generates a consolidated PDF for ALL active projects by rendering each project
+    separately and merging the resulting PDFs with PyPDF2."""
     projects = ExcelDataStore.get_projects()
-    
-    # Extract Excel filename
-    excel_filename = ""
-    if os.path.exists(SYNC_CONFIG_PATH):
-        try:
-            with open(SYNC_CONFIG_PATH, 'r') as f:
-                config = json.load(f)
-            path = config.get("file_path", "")
-            if "://" in path:
-                path = path.split("://", 1)[1]
-            excel_filename = os.path.basename(path)
-        except Exception:
-            pass
-    if not excel_filename:
-        excel_filename = "tasks.xlsx"
-        
-    doc = SimpleDocTemplate(filename, pagesize=letter,
-                            rightMargin=40, leftMargin=40, topMargin=60, bottomMargin=60)
-    story = []
-    styles = getSampleStyleSheet()
-    
-    # Custom color palette
-    primary_color = colors.HexColor("#0f172a")
-    secondary_color = colors.HexColor("#475569")
-    accent_color = colors.HexColor("#0284c7")
-    bg_light = colors.HexColor("#f8fafc")
-    border_color = colors.HexColor("#e2e8f0")
-    danger_red = colors.HexColor("#e11d48")
-    
-    title_style = ParagraphStyle(
-        'OpsTitle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        leading=28,
-        textColor=primary_color,
-        fontName='Helvetica-Bold',
-        spaceAfter=4
-    )
-    
-    subtitle_style = ParagraphStyle(
-        'OpsSubtitle',
-        parent=styles['Normal'],
-        fontSize=9,
-        leading=13,
-        textColor=secondary_color,
-        fontName='Helvetica',
-        spaceAfter=15
-    )
-    
-    section_title_style = ParagraphStyle(
-        'ConsolidatedSection',
-        parent=styles['Heading2'],
-        fontSize=14,
-        leading=18,
-        textColor=primary_color,
-        fontName='Helvetica-Bold',
-        spaceBefore=18,
-        spaceAfter=10,
-        keepWithNext=True
-    )
-    
-    subsection_title_style = ParagraphStyle(
-        'ConsolidatedSubSection',
-        parent=styles['Heading3'],
-        fontSize=11,
-        leading=15,
-        textColor=secondary_color,
-        fontName='Helvetica-Bold',
-        spaceBefore=10,
-        spaceAfter=6,
-        keepWithNext=True
-    )
-    
-    cell_header = ParagraphStyle(
-        'OpsHeader',
-        parent=styles['Normal'],
-        fontSize=8,
-        leading=10,
-        textColor=colors.white,
-        fontName='Helvetica-Bold'
-    )
-    
-    cell_style = ParagraphStyle(
-        'OpsCell',
-        parent=styles['Normal'],
-        fontSize=8,
-        leading=11,
-        textColor=primary_color,
-        fontName='Helvetica'
-    )
-    
-    cell_bold = ParagraphStyle(
-        'OpsCellBold',
-        parent=styles['Normal'],
-        fontSize=8,
-        leading=11,
-        textColor=danger_red,
-        fontName='Helvetica-Bold'
-    )
-    
-    callout_style = ParagraphStyle(
-        'CalloutText',
-        parent=styles['Normal'],
-        fontSize=9,
-        leading=13,
-        textColor=secondary_color,
-        fontName='Helvetica-Oblique'
-    )
+    if not projects:
+        raise RuntimeError("No projects found. Please import data first.")
 
-    def create_section_header(title_text):
-        p = Paragraph(title_text, section_title_style)
-        t = Table([[p]], colWidths=[532])
-        t.setStyle(TableStyle([
-            ('LINEBELOW', (0,0), (-1,-1), 1.5, accent_color),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-            ('TOPPADDING', (0,0), (-1,-1), 10),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-        ]))
-        return t
+    import tempfile as _tmp_mod
+    per_project_pdfs = []
+    n = len(projects)
 
-    # Document Header
-    story.append(Paragraph("Consolidated Project Status Report", title_style))
-    story.append(Paragraph(f"Excel Source: {excel_filename} | Compiled on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style))
-    story.append(Spacer(1, 10))
-    
-    temp_files = []
-    
-    # 1. Collect all rendering tasks
-    render_tasks = []
-    project_records = {}
-    
-    for proj in projects:
+    for i, proj in enumerate(projects):
+        pct_start = 10 + int(i / n * 70)
+        pct_end   = 10 + int((i + 1) / n * 70)
         pname = proj["name"]
-        records_dict = ExcelDataStore.get_project_rows(pname)
-        if not records_dict:
-            continue
-        project_records[pname] = records_dict
-        
-        timelines = ['days', 'weeks', 'months', 'years']
-        for t_type in timelines:
-            img_path = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_{t_type}.jpg")
-            render_tasks.append((records_dict, img_path, pname, t_type, 80))
-            temp_files.append(img_path)
+        if progress_callback:
+            progress_callback(pct_start, f"Generating report for project {pname}...")
 
-    # 2. Run rendering tasks in parallel using ProcessPoolExecutor
-    total_tasks = len(render_tasks)
-    completed_tasks = 0
-    
-    if progress_callback:
-        progress_callback(5, f"Spawning worker processes for {total_tasks} charts...")
-        
-    try:
-        from concurrent.futures import ProcessPoolExecutor, as_completed
-        with ProcessPoolExecutor() as executor:
-            futures = {
-                executor.submit(render_gantt_task_module, t[0], t[1], t[2], t[3], t[4]): t
-                for t in render_tasks
-            }
-            
-            for future in as_completed(futures):
-                completed_tasks += 1
-                if progress_callback:
-                    pct = int((completed_tasks / max(1, total_tasks)) * 85) + 5
-                    progress_callback(pct, f"Rendered chart {completed_tasks}/{total_tasks}...")
-    except Exception as e:
-        print(f"Error during parallel rendering: {e}")
-        
-    try:
-        from reportlab.platypus import PageBreak
-        
-        valid_project_count = 0
-        for pname, records_dict in project_records.items():
-            if not records_dict:
-                continue
-                
-            # If not the first project, start on a new page
-            if valid_project_count > 0:
-                story.append(PageBreak())
-            valid_project_count += 1
-                
-            story.append(create_section_header(f"Project Sheet: {pname}"))
-            story.append(Spacer(1, 10))
-            
-            img_days = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_days.jpg")
-            img_weeks = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_weeks.jpg")
-            img_months = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_months.jpg")
-            img_years = os.path.join(UPLOAD_FOLDER, f"temp_gantt_{pname}_years.jpg")
-            
-            # Add Gantt charts in pairs (2 per page)
-            # Pair 1: Days and Weeks
-            story.append(Paragraph("Daily & Weekly Timelines", subsection_title_style))
-            t_table_1_data = []
-            row_images = []
-            if os.path.exists(img_days):
-                row_images.append(Image(img_days, width=260, height=140))
-            else:
-                row_images.append(Paragraph("Failed to render daily timeline.", cell_style))
-            if os.path.exists(img_weeks):
-                row_images.append(Image(img_weeks, width=260, height=140))
-            else:
-                row_images.append(Paragraph("Failed to render weekly timeline.", cell_style))
-            t_table_1_data.append(row_images)
-            
-            t_table_1 = Table(t_table_1_data, colWidths=[266, 266])
-            t_table_1.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('LEFTPADDING', (0,0), (-1,-1), 2),
-                ('RIGHTPADDING', (0,0), (-1,-1), 2),
-            ]))
-            story.append(t_table_1)
-            story.append(Spacer(1, 15))
-            
-            # Pair 2: Months and Years
-            story.append(Paragraph("Monthly & Yearly Timelines", subsection_title_style))
-            t_table_2_data = []
-            row_images_2 = []
-            if os.path.exists(img_months):
-                row_images_2.append(Image(img_months, width=260, height=140))
-            else:
-                row_images_2.append(Paragraph("Failed to render monthly timeline.", cell_style))
-            if os.path.exists(img_years):
-                row_images_2.append(Image(img_years, width=260, height=140))
-            else:
-                row_images_2.append(Paragraph("Failed to render yearly timeline.", cell_style))
-            t_table_2_data.append(row_images_2)
-            
-            t_table_2 = Table(t_table_2_data, colWidths=[266, 266])
-            t_table_2.setStyle(TableStyle([
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('LEFTPADDING', (0,0), (-1,-1), 2),
-                ('RIGHTPADDING', (0,0), (-1,-1), 2),
-            ]))
-            story.append(t_table_2)
-            story.append(Spacer(1, 15))
-            
-            # Defect & Rejection Analysis Table
-            story.append(Paragraph("Defect & Rejection Analysis", subsection_title_style))
-            
-            # Filter records with defects
-            defective_records = [r for r in records_dict if int(r.get("Defect Qty", 0) or 0) > 0]
-            
-            if defective_records:
-                # Render defect table
-                table_data = [[
-                    Paragraph("Category (Product)", cell_header),
-                    Paragraph("Test Method", cell_header),
-                    Paragraph("Test Number", cell_header),
-                    Paragraph("Defect Qty", cell_header)
-                ]]
-                for r in defective_records:
-                    table_data.append([
-                        Paragraph(r.get("Category", ""), cell_style),
-                        Paragraph(r.get("Test Method", ""), cell_style),
-                        Paragraph(r.get("Test Number", ""), cell_style),
-                        Paragraph(str(r.get("Defect Qty", 0)), cell_bold)
-                    ])
-                
-                defect_table = Table(table_data, colWidths=[132, 180, 100, 120])
-                defect_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,0), primary_color),
-                    ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-                    ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                    ('LINEBELOW', (0,0), (-1,0), 1, primary_color),
-                    ('LINEBELOW', (0,1), (-1,-1), 0.5, border_color),
-                    ('TOPPADDING', (0,0), (-1,-1), 5),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-                    ('LEFTPADDING', (0,0), (-1,-1), 6),
-                    ('RIGHTPADDING', (0,0), (-1,-1), 6),
-                    ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, bg_light])
-                ]))
-                story.append(defect_table)
-                story.append(Spacer(1, 10))
-                
-                # Render rejection comments below the table
-                story.append(Paragraph("<b>Rejection Comments & Defect Reasons:</b>", cell_style))
-                story.append(Spacer(1, 4))
-                
-                for r in defective_records:
-                    comment_text = r.get("Comments", "").strip()
-                    if not comment_text:
-                        comment_text = "No comments/reasons recorded for this defect."
-                    
-                    prod_info = f"<b>{r.get('Category')}</b> ({r.get('Test Method')} - {r.get('Test Number')}):"
-                    story.append(Paragraph(f"• {prod_info} {comment_text}", cell_style))
-                    story.append(Spacer(1, 2))
-            else:
-                # Render "no issues" message
-                no_issue_table = Table([[
-                    Paragraph("No issues occurred during the test methods processes.", callout_style)
-                ]], colWidths=[532])
-                no_issue_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0,0), (-1,-1), bg_light),
-                    ('BOX', (0,0), (-1,-1), 1, border_color),
-                    ('TOPPADDING', (0,0), (-1,-1), 10),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 10),
-                    ('LEFTPADDING', (0,0), (-1,-1), 12),
-                    ('RIGHTPADDING', (0,0), (-1,-1), 12),
-                ]))
-                story.append(no_issue_table)
-                
-            story.append(Spacer(1, 15))
-            
-        # Build document
-        # Set the excel_filename on NumberedCanvas class so it can be accessed during build
-        NumberedCanvas.excel_filename = excel_filename
-        
-        if progress_callback:
-            progress_callback(95, "Compiling PDF document...")
-            
-        doc.build(story, canvasmaker=NumberedCanvas)
-        
-        if progress_callback:
-            progress_callback(100, "Completed!")
-        
-    finally:
-        # Clean up temporary files
-        for f in temp_files:
+        tmp_pdf = _tmp_mod.NamedTemporaryFile(delete=False, suffix=".pdf", prefix=f"proj_{pname}_")
+        tmp_pdf.close()
+
+        def _sub_progress(pct, msg, ps=pct_start, pe=pct_end):
+            if progress_callback:
+                mapped = ps + int((pct / 100) * (pe - ps))
+                progress_callback(mapped, msg)
+
+        try:
+            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress)
+            per_project_pdfs.append(tmp_pdf.name)
+        except Exception as e:
+            # Skip failed projects but log the error
+            print(f"[WARN] Skipped project {pname} during consolidated export: {e}")
             try:
-                if os.path.exists(f):
-                    os.remove(f)
-            except Exception as ex:
-                print(f"Error removing temp file {f}: {ex}")
+                os.remove(tmp_pdf.name)
+            except Exception:
+                pass
+
+    if not per_project_pdfs:
+        raise RuntimeError("All project PDF generations failed. Check the server logs for details.")
+
+    if progress_callback:
+        progress_callback(82, "Merging project reports...")
+
+    # Merge all per-project PDFs into the final output
+    try:
+        from PyPDF2 import PdfMerger
+        merger = PdfMerger()
+        for pdf_path in per_project_pdfs:
+            merger.append(pdf_path)
+        with open(filename, "wb") as out_f:
+            merger.write(out_f)
+        merger.close()
+    except ImportError:
+        # PyPDF2 not installed — fall back to concatenating raw bytes
+        # (works for simple PDFs but may produce a malformed cross-reference table)
+        import shutil as _sh2
+        if len(per_project_pdfs) == 1:
+            _sh2.copy2(per_project_pdfs[0], filename)
+        else:
+            with open(filename, "wb") as out_f:
+                for pdf_path in per_project_pdfs:
+                    with open(pdf_path, "rb") as in_f:
+                        out_f.write(in_f.read())
+    finally:
+        for pdf_path in per_project_pdfs:
+            try:
+                os.remove(pdf_path)
+            except Exception:
+                pass
+
+    if progress_callback:
+        progress_callback(100, "Completed!")
+
 
 
 @app.route('/generate-report', methods=['GET'])
@@ -2277,6 +2037,89 @@ def start_consolidated_export():
     
     return jsonify({"task_id": task_id})
 
+
+@app.route('/api/export-project/start', methods=['POST'])
+@login_required
+def start_project_export():
+    data = request.json or {}
+    project_name = data.get('project')
+    comment = data.get('comment')
+    
+    task_id = str(uuid.uuid4())
+    export_tasks[task_id] = {
+        "status": "processing",
+        "progress": 0,
+        "message": "Initializing project PDF generation..."
+    }
+    
+    def run_compilation():
+        temp_pdf = os.path.join(UPLOAD_FOLDER, f"project_{task_id}.pdf")
+        
+        def update_progress(percent, msg):
+            if task_id in export_tasks:
+                export_tasks[task_id]["progress"] = percent
+                export_tasks[task_id]["message"] = msg
+            
+        try:
+            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress)
+            if task_id in export_tasks:
+                export_tasks[task_id]["status"] = "completed"
+                export_tasks[task_id]["progress"] = 100
+                export_tasks[task_id]["message"] = "Completed!"
+        except Exception as e:
+            if task_id in export_tasks:
+                export_tasks[task_id]["status"] = "failed"
+                export_tasks[task_id]["progress"] = 0
+                export_tasks[task_id]["message"] = f"Failed: {str(e)}"
+            import traceback
+            traceback.print_exc()
+
+    thread = threading.Thread(target=run_compilation)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({"task_id": task_id})
+
+@app.route('/api/export-project/progress/<task_id>', methods=['GET'])
+@login_required
+def project_export_progress(task_id):
+    state = export_tasks.get(task_id)
+    if not state:
+        return jsonify({"status": "failed", "progress": 0, "message": "Task not found"}), 404
+    return jsonify(state)
+
+@app.route('/api/export-project/download/<task_id>/<filename>', methods=['GET'])
+@login_required
+def project_export_download(task_id, filename):
+    temp_pdf = os.path.join(UPLOAD_FOLDER, f"project_{task_id}.pdf")
+    if not os.path.exists(temp_pdf):
+        return jsonify({"error": "Compiled report file not found or expired"}), 404
+        
+    try:
+        def generate_pdf_stream():
+            try:
+                with open(temp_pdf, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)
+                        if not chunk:
+                            break
+                        yield chunk
+            finally:
+                if task_id in export_tasks:
+                    del export_tasks[task_id]
+                try:
+                    if os.path.exists(temp_pdf):
+                        os.remove(temp_pdf)
+                except Exception as ex:
+                    print(f"Error removing temp export PDF file: {ex}")
+
+        from flask import Response
+        response = Response(generate_pdf_stream(), mimetype='application/pdf')
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+    except Exception as e:
+        return jsonify({"error": f"Failed to stream PDF: {str(e)}"}), 500
+
 @app.route('/api/export-consolidated/progress/<task_id>', methods=['GET'])
 @login_required
 def consolidated_export_progress(task_id):
@@ -2317,7 +2160,32 @@ def consolidated_export_download(task_id):
     except Exception as e:
         return jsonify({"error": f"Failed to stream PDF: {str(e)}"}), 500
 
+# --- EXCEL FULL EXPORT ---
+@app.route('/api/export-excel', methods=['GET'])
+@login_required
+def export_excel():
+    """Downloads the current tasks.xlsx data file as a full Excel report."""
+    if not os.path.exists(EXCEL_PATH):
+        return jsonify({"error": "No Excel data file found. Please import data first."}), 404
+    try:
+        import shutil as _sh
+        import tempfile as _tmp
+        # Copy to a temp file so we can stream it safely even if it's being written
+        tmp = _tmp.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        tmp.close()
+        _sh.copy2(EXCEL_PATH, tmp.name)
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        return send_file(
+            tmp.name,
+            as_attachment=True,
+            download_name=f"Full_Operations_Report_{today}.xlsx",
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        return jsonify({"error": f"Failed to export Excel file: {str(e)}"}), 500
+
 # --- EMAIL AUTOMATION ---
+
 
 @app.route('/send-email', methods=['POST'])
 @login_required
