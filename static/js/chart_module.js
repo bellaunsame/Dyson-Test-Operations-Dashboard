@@ -416,7 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     interaction: {
                         mode: 'nearest',
                         axis: 'x',
-                        intersect: false
+                        intersect: true
                     },
                     plugins: {
                         legend: { display: false },
@@ -433,6 +433,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             font: { size: 12 }
                         },
                         tooltip: {
+                            mode: 'nearest',
+                            intersect: true,
                             backgroundColor: 'rgba(30, 30, 30, 0.95)',
                             titleColor: '#ffffff',
                             bodyColor: '#f1f1f1',

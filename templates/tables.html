@@ -80,40 +80,10 @@
     </div>
 </div>
 
-<!-- Edit Project Modal -->
-<div class="modal-backdrop" id="edit-project-modal">
-    <div class="modal-card" style="width: 100%; max-width: 400px; margin-top: auto; margin-bottom: auto;">
-        <div class="modal-header">
-            <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: var(--color-text);">
-                <i class="fa-solid fa-pen-to-square" style="color: var(--color-primary);"></i> Edit Project
-            </h3>
-            <button class="modal-close-btn" id="btn-close-edit-modal-x" type="button"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="modal-body" style="padding: 20px 0 0 0;">
-            <form id="edit-project-form">
-                <input type="hidden" id="edit-project-original-name">
-                <div style="margin-bottom: 15px;">
-                    <label for="edit-project-name" style="display: block; font-size: 12px; font-weight: 600; color: var(--color-text-muted); margin-bottom: 6px;">Project Name</label>
-                    <input type="text" id="edit-project-name" placeholder="e.g., 990" required style="width: 100%; padding: 8px 12px; border-radius: 6px;">
-                </div>
-                <div style="margin-bottom: 20px;">
-                    <label for="edit-project-desc" style="display: block; font-size: 12px; font-weight: 600; color: var(--color-text-muted); margin-bottom: 6px;">Description / Notes</label>
-                    <input type="text" id="edit-project-desc" placeholder="e.g., Initial integration tests" style="width: 100%; padding: 8px 12px; border-radius: 6px;">
-                </div>
-                <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                    <button type="button" class="btn btn-secondary" id="btn-close-edit-modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     let activeTab = 'Active';
     let searchQuery = '';
-    // Store full project data for edit modal
     let projectsData = [];
 
     const cardsContainer = document.getElementById('project-cards-container');
@@ -128,12 +98,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCloseModal = document.getElementById('btn-close-project-modal');
     const btnCloseModalX = document.getElementById('btn-close-project-modal-x');
     const createForm = document.getElementById('create-project-form');
-
-    // Edit Modal controls
-    const editModal = document.getElementById('edit-project-modal');
-    const editForm = document.getElementById('edit-project-form');
-    const btnCloseEditModal = document.getElementById('btn-close-edit-modal');
-    const btnCloseEditModalX = document.getElementById('btn-close-edit-modal-x');
 
     // Tab toggling
     toggleActive.addEventListener('click', () => {
@@ -177,50 +141,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnCloseModal) btnCloseModal.addEventListener('click', closeProjectModal);
     if (btnCloseModalX) btnCloseModalX.addEventListener('click', closeProjectModal);
-
-    // Edit Modal show/hide
-    function openEditModal(project) {
-        document.getElementById('edit-project-original-name').value = project.name;
-        document.getElementById('edit-project-name').value = project.name;
-        document.getElementById('edit-project-desc').value = project.description || '';
-        editModal.classList.add('active');
-    }
-
-    function closeEditModal() {
-        editModal.classList.remove('active');
-        editForm.reset();
-    }
-
-    if (btnCloseEditModal) btnCloseEditModal.addEventListener('click', closeEditModal);
-    if (btnCloseEditModalX) btnCloseEditModalX.addEventListener('click', closeEditModal);
-
-    // Edit Project submit
-    editForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const originalName = document.getElementById('edit-project-original-name').value;
-        const newName = document.getElementById('edit-project-name').value.trim();
-        const newDesc = document.getElementById('edit-project-desc').value.trim();
-
-        const payload = {};
-        if (newName !== originalName) payload.name = newName;
-        payload.description = newDesc;
-
-        fetch(`/api/projects/${originalName}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-        .then(res => {
-            if (!res.ok) return res.json().then(d => { throw new Error(d.error); });
-            return res.json();
-        })
-        .then(() => {
-            showToast(`Project updated successfully!`, 'success');
-            closeEditModal();
-            loadProjects();
-        })
-        .catch(err => showToast(err.message, 'error'));
-    });
 
     // Create Project submit
     createForm.addEventListener('submit', (e) => {
@@ -346,9 +266,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 <!-- Action Buttons -->
                 <div style="display: flex; gap: 8px; border-top: 1px solid var(--color-border); padding-top: 12px;">
-                    <button class="btn btn-secondary card-action-btn btn-edit" data-name="${p.name}" style="flex: 1; padding: 6px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                        <i class="fa-solid fa-pen-to-square"></i> Edit
-                    </button>
                     <button class="btn btn-secondary card-action-btn btn-archive" data-name="${p.name}" style="flex: 1; padding: 6px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;">
                         <i class="fa-solid fa-box-archive"></i> ${p.status === 'Active' ? 'Archive' : 'Activate'}
                     </button>
@@ -357,13 +274,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     </button>
                 </div>
             `;
-
-            // Attach Edit Handler — opens the edit modal
-            card.querySelector('.btn-edit').addEventListener('click', (e) => {
-                const name = e.currentTarget.getAttribute('data-name');
-                const project = projectsData.find(pr => pr.name === name);
-                if (project) openEditModal(project);
-            });
 
             // Attach Archive Handler
             card.querySelector('.btn-archive').addEventListener('click', (e) => {

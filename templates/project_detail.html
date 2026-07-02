@@ -396,9 +396,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td style="padding:10px 14px;border-right:1px solid var(--color-border);color:#e74c3c;font-weight:600;max-width:180px;word-break:break-word;">${r["Comments"] || '<span style="color:var(--color-text-muted);font-weight:400;">—</span>'}</td>
                 <td style="padding:10px 12px;text-align:center;">
                     <div style="display:flex;justify-content:center;gap:5px;">
-                        <button class="edit-btn" data-id="${r["id"]}" title="Edit" style="padding:4px 9px;font-size:11px;">
-                            <i class="fa-solid fa-pencil"></i>
-                        </button>
                         <button class="delete-btn" data-id="${r["id"]}" title="Delete" style="padding:4px 9px;font-size:11px;color:#e74c3c;border-color:rgba(231,76,60,0.2);background:rgba(231,76,60,0.04);">
                             <i class="fa-solid fa-trash-can"></i>
                         </button>
@@ -406,9 +403,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 </td>
             `;
 
-            tr.querySelector('.edit-btn').addEventListener('click', (e) => {
-                startEditRow(parseInt(e.currentTarget.getAttribute('data-id')));
-            });
             tr.querySelector('.delete-btn').addEventListener('click', (e) => {
                 const id = parseInt(e.currentTarget.getAttribute('data-id'));
                 if (confirm('Delete this test record?')) deleteRow(id);
@@ -416,44 +410,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             tableBody.appendChild(tr);
         });
-    }
-
-    // ── Edit Row ───────────────────────────────────────────────────────
-    function startEditRow(id) {
-        const r = rowsData.find(row => row.id === id);
-        if (!r) return;
-
-        editingRowId = id;
-        modalTitle.textContent = 'Edit Test Record';
-
-        document.getElementById('row-category').value    = r["Category"]    || '';
-        document.getElementById('row-test-method').value = r["Test Method"] || '';
-        document.getElementById('row-test-number').value = r["Test Number"] || '';
-        document.getElementById('row-start-date').value  = r["Start Date"]  || todayStr;
-
-        document.getElementById('proto-w').value = r["Proto Weeks"] ?? 0;
-        document.getElementById('proto-d').value = r["Proto Days"]  ?? 0;
-        document.getElementById('proto-q').value = r["Proto Qty"]   ?? 0;
-
-        document.getElementById('dvt-w').value = r["DVT Weeks"] ?? 0;
-        document.getElementById('dvt-d').value = r["DVT Days"]  ?? 0;
-        document.getElementById('dvt-q').value = r["DVT Qty"]   ?? 0;
-
-        document.getElementById('evt-w').value = r["EVT Weeks"] ?? 0;
-        document.getElementById('evt-d').value = r["EVT Days"]  ?? 0;
-        document.getElementById('evt-q').value = r["EVT Qty"]   ?? 0;
-
-        document.getElementById('pvt-w').value = r["PVT Weeks"] ?? 0;
-        document.getElementById('pvt-d').value = r["PVT Days"]  ?? 0;
-        document.getElementById('pvt-q').value = r["PVT Qty"]   ?? 0;
-
-        document.getElementById('row-comments').value    = r["Comments"]   || '';
-        document.getElementById('row-defect-qty').value  = r["Defect Qty"] ?? 0;
-
-        // Refresh total day counters
-        ['proto','dvt','evt','pvt'].forEach(p => updateTotal(p));
-
-        rowModal.classList.add('active');
     }
 
     // ── Delete Row ─────────────────────────────────────────────────────
