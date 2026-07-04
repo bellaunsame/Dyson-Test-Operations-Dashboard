@@ -15,9 +15,6 @@
                 <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: var(--color-text);">Project</h1>
             </div>
         </div>
-        <button class="btn btn-primary" id="btn-create-project" style="padding: 8px 16px; font-weight: 600;">
-            <i class="fa-solid fa-plus"></i> Create Project
-        </button>
     </header>
 
     <!-- Controls Row -->
@@ -32,6 +29,12 @@
         <div style="display: flex; gap: 8px; width: 100%; max-width: 300px;">
             <input type="text" id="search-projects" placeholder="Search projects..." style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-card-bg); color: var(--color-text); font-size: 13px; outline: none;">
             <button class="btn btn-secondary" style="padding: 8px 12px; border-radius: 6px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-magnifying-glass"></i></button>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <button class="btn btn-secondary" id="btn-select-all" type="button" style="padding: 8px 14px;">Select All</button>
+            <button class="btn btn-secondary" id="btn-clear-all" type="button" style="padding: 8px 14px;">Clear All</button>
+            <button class="btn btn-danger" id="btn-delete-selected" type="button" style="padding: 8px 14px;" disabled>Delete Selected</button>
+            <span id="selected-count-badge" style="display: inline-flex; align-items: center; justify-content: center; padding: 6px 10px; border-radius: 999px; background: rgba(59, 130, 246, 0.12); color: var(--color-text); font-size: 13px; font-weight: 600;">0 selected</span>
         </div>
     </div>
 
@@ -54,32 +57,6 @@
     </div>
 </div>
 
-<!-- Create Project Modal -->
-<div class="modal-backdrop" id="create-project-modal">
-    <div class="modal-card" style="width: 100%; max-width: 400px; margin-top: auto; margin-bottom: auto;">
-        <div class="modal-header">
-            <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: var(--color-text);">Create New Project</h3>
-            <button class="modal-close-btn" id="btn-close-project-modal-x" type="button"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="modal-body" style="padding: 20px 0 0 0;">
-            <form id="create-project-form">
-                <div style="margin-bottom: 15px;">
-                    <label for="new-project-name" style="display: block; font-size: 12px; font-weight: 600; color: var(--color-text-muted); margin-bottom: 6px;">Project Name</label>
-                    <input type="text" id="new-project-name" placeholder="e.g., 990" required style="width: 100%; padding: 8px 12px; border-radius: 6px;">
-                </div>
-                <div style="margin-bottom: 20px;">
-                    <label for="new-project-desc" style="display: block; font-size: 12px; font-weight: 600; color: var(--color-text-muted); margin-bottom: 6px;">Description / Notes</label>
-                    <input type="text" id="new-project-desc" placeholder="e.g., Initial integration tests" style="width: 100%; padding: 8px 12px; border-radius: 6px;">
-                </div>
-                <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                    <button type="button" class="btn btn-secondary" id="btn-close-project-modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Create</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     let activeTab = 'Active';
@@ -91,13 +68,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleArchived = document.getElementById('toggle-archived');
     const searchInput = document.getElementById('search-projects');
     const showingCount = document.getElementById('showing-count');
-    
-    // Create Modal controls
-    const createModal = document.getElementById('create-project-modal');
-    const btnCreate = document.getElementById('btn-create-project');
-    const btnCloseModal = document.getElementById('btn-close-project-modal');
-    const btnCloseModalX = document.getElementById('btn-close-project-modal-x');
-    const createForm = document.getElementById('create-project-form');
+    const btnSelectAll = document.getElementById('btn-select-all');
+    const btnClearAll = document.getElementById('btn-clear-all');
+    const btnDeleteSelected = document.getElementById('btn-delete-selected');
+    const selectedCountBadge = document.getElementById('selected-count-badge');
+    const selectedProjects = new Set();
 
     // Tab toggling
     toggleActive.addEventListener('click', () => {
@@ -131,39 +106,73 @@ document.addEventListener('DOMContentLoaded', () => {
         loadProjects();
     });
 
-    // Create Modal show/hide
-    btnCreate.addEventListener('click', () => createModal.classList.add('active'));
-    
-    function closeProjectModal() {
-        createModal.classList.remove('active');
-        createForm.reset();
-    }
+    // Select/clear/delete controls
+    btnSelectAll.addEventListener('click', () => {
+        const checkboxes = cardsContainer.querySelectorAll('.project-select-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = true;
+            selectedProjects.add(checkbox.dataset.name);
+            const card = checkbox.closest('.grid-card');
+            if (card) {
+                card.style.borderColor = 'rgba(37, 99, 235, 0.7)';
+                card.style.background = 'rgba(59, 130, 246, 0.08)';
+            }
+        });
+        updateSelectionButtons();
+    });
 
-    if (btnCloseModal) btnCloseModal.addEventListener('click', closeProjectModal);
-    if (btnCloseModalX) btnCloseModalX.addEventListener('click', closeProjectModal);
+    btnClearAll.addEventListener('click', () => {
+        selectedProjects.clear();
+        cardsContainer.querySelectorAll('.project-select-checkbox').forEach(checkbox => {
+            checkbox.checked = false;
+            const card = checkbox.closest('.grid-card');
+            if (card) {
+                card.style.borderColor = 'var(--color-border)';
+                card.style.background = 'var(--color-card-bg)';
+            }
+        });
+        updateSelectionButtons();
+    });
 
-    // Create Project submit
-    createForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const name = document.getElementById('new-project-name').value.trim();
-        const description = document.getElementById('new-project-desc').value.trim();
+    btnDeleteSelected.addEventListener('click', () => {
+        const names = [...selectedProjects];
+        if (names.length === 0) {
+            showToast('Select at least one project to delete.', 'warning');
+            return;
+        }
 
-        fetch('/api/projects', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, description })
-        })
-        .then(res => {
-            if (!res.ok) return res.json().then(d => { throw new Error(d.error); });
-            return res.json();
-        })
-        .then(data => {
-            showToast(`Project ${data.name} created successfully!`, 'success');
-            closeProjectModal();
+        if (!confirm(`Delete ${names.length} selected project(s)? This cannot be undone.`)) {
+            return;
+        }
+
+        Promise.all(names.map(name => fetch(`/api/projects/${encodeURIComponent(name)}`, { method: 'DELETE' })
+            .then(res => {
+                if (!res.ok) return res.json().then(data => Promise.reject(data.error || 'Delete failed'));
+                return res.json();
+            })
+        ))
+        .then(() => {
+            showToast(`${names.length} project(s) deleted.`, 'success');
+            selectedProjects.clear();
             loadProjects();
         })
-        .catch(err => showToast(err.message, 'error'));
+        .catch(err => {
+            console.error(err);
+            showToast(typeof err === 'string' ? err : 'Failed to delete selected projects.', 'error');
+            loadProjects();
+        });
     });
+
+    function updateSelectionButtons() {
+        btnDeleteSelected.disabled = selectedProjects.size === 0;
+        if (selectedCountBadge) {
+            const count = selectedProjects.size;
+            selectedCountBadge.textContent = `${count} selected`;
+            selectedCountBadge.style.opacity = count > 0 ? '1' : '0.6';
+        }
+    }
+
+    updateSelectionButtons();
 
     // Load Projects
     let totalItemsCount = 0;
@@ -194,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showingCount.textContent = `Showing 0-0 of 0`;
             cardsContainer.innerHTML = `
                 <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--color-text-muted);">
-                    No projects found. Click "Create Project" above to add one.
+                    No projects found.
                 </div>
             `;
             updatePaginationControls(totalCount);
@@ -206,7 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pageItems.length === 0) {
             cardsContainer.innerHTML = `
                 <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--color-text-muted);">
-                    No projects found. Click "Create Project" above to add one.
+                    No projects found.
                 </div>
             `;
             updatePaginationControls(totalCount);
@@ -238,23 +247,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 card.style.borderColor = 'var(--color-border)';
             });
 
-            // Click card to navigate (excluding buttons)
+            // Click card to navigate (excluding buttons and selection controls)
             card.addEventListener('click', (e) => {
-                if (e.target.closest('.card-action-btn')) return;
-                window.location.href = `/tables/${p.name}`;
+                if (e.target.closest('.card-action-btn') || e.target.closest('.project-select-checkbox') || e.target.closest('label')) return;
+                window.location.href = `/tables/${encodeURIComponent(p.name)}`;
             });
 
             const rowText = p.row_count === 1 ? '1 row' : `${p.row_count} rows`;
+            const isSelected = selectedProjects.has(p.name);
+            if (isSelected) {
+                card.style.borderColor = 'rgba(37, 99, 235, 0.7)';
+                card.style.background = 'rgba(59, 130, 246, 0.08)';
+            }
 
             card.innerHTML = `
                 <div>
                     <!-- Header Icon & Name -->
-                    <div style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
-                        <span style="font-size: 24px; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">📝</span>
-                        <div>
-                            <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--color-text);">${p.name}</h3>
-                            <p style="margin: 4px 0 0 0; font-size: 12px; color: var(--color-text-muted); min-height: 16px;">${p.description || ''}</p>
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 24px; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">📝</span>
+                            <div>
+                                <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--color-text);">${p.name}</h3>
+                                <p style="margin: 4px 0 0 0; font-size: 12px; color: var(--color-text-muted); min-height: 16px;">${p.description || ''}</p>
+                            </div>
                         </div>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text); cursor: pointer;">
+                            <input type="checkbox" class="project-select-checkbox" data-name="${p.name}" ${isSelected ? 'checked' : ''}>
+                            Select
+                        </label>
                     </div>
                     
                     <!-- Metadata Badges -->
@@ -290,6 +310,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
+            const checkbox = card.querySelector('.project-select-checkbox');
+            if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    const name = checkbox.dataset.name;
+                    if (checkbox.checked) {
+                        selectedProjects.add(name);
+                        card.style.borderColor = 'rgba(37, 99, 235, 0.7)';
+                        card.style.background = 'rgba(59, 130, 246, 0.08)';
+                    } else {
+                        selectedProjects.delete(name);
+                        card.style.borderColor = 'var(--color-border)';
+                        card.style.background = 'var(--color-card-bg)';
+                    }
+                    updateSelectionButtons();
+                });
+            }
             cardsContainer.appendChild(card);
         });
 

@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.showToast(`Exporting PDF for ${currentProjectName}...`, 'info');
                 }
                 if (window.triggerPdfDownload) {
-                    window.triggerPdfDownload(currentProjectName);
+                    window.triggerPdfDownload(currentProjectName, currentCategory, currentScale);
                 } else {
                     const exportUrl = `/generate-report?${params.toString()}`;
                     window.location.assign(exportUrl);

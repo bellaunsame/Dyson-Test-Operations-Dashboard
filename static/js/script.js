@@ -590,10 +590,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (btnPdfDownload) {
         btnPdfDownload.addEventListener('click', () => {
-            const projectParam = currentProject ? `?project=${encodeURIComponent(currentProject)}` : '';
-            const url = `/generate-report${projectParam}`;
-            
-            showToast(`Generating PDF report for Project ${currentProject || 'All'}...`, 'info');
+            const params = new URLSearchParams();
+            if (currentProject) {
+                params.set('project', currentProject);
+            }
+            if (currentCategory && currentCategory !== 'all') {
+                params.set('category', currentCategory);
+            }
+            if (currentScale) {
+                params.set('scale', currentScale);
+            }
+
+            const url = `/generate-report?${params.toString()}`;
+            showToast(`Generating PDF report for Project ${currentProject || 'All'} (${currentCategory !== 'all' ? currentCategory + ' / ' : ''}${currentScale})...`, 'info');
             window.location.href = url;
         });
     }
@@ -985,7 +994,7 @@ Mail Status: Queued and Sent successfully (Simulated)`;
     }
 
     // Trigger PDF download programmatically
-    function triggerPdfDownload(projectName) {
+    function triggerPdfDownload(projectName, categoryFilter, scaleFilter) {
         const comment = sessionStorage.getItem('pdf_comment_' + projectName) || '';
         const exportProgressModal = document.getElementById('export-progress-modal');
         const exportProgressBar = document.getElementById('export-progress-bar');
@@ -1054,7 +1063,7 @@ Mail Status: Queued and Sent successfully (Simulated)`;
         fetch('/api/export-project/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ project: projectName, comment: comment })
+            body: JSON.stringify({ project: projectName, comment: comment, category: categoryFilter, scale: scaleFilter })
         })
         .then(response => {
             if (!response.ok) {
