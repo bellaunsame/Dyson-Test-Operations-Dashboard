@@ -50,9 +50,15 @@ test-ops-dashboard/
 │
 ├── static/
 │   ├── css/
-│   │   └── style.css       # Core design system and layout styles
+│   │   ├── base.css        # Reset, variables, global elements
+│   │   ├── layout.css      # Sidebar, main layout, header, stats grid
+│   │   ├── components.css  # Buttons, tables, chatbot, modals, toasts
+│   │   └── login.css       # Stale login styles (retained)
 │   └── js/
-│       └── script.js       # Chart rendering, AJAX requests, and UI logic
+│       ├── dashboard.js    # State management, data loading, filters
+│       ├── gantt.js        # Timeline Chart.js visualization
+│       ├── pdf-export.js   # PDF and Excel report download triggers
+│       └── email-chat.js   # Email dispatch forms & AI chatbot interactions
 │
 ├── templates/
 │   ├── base.html           # Core HTML skeleton (Google Fonts, Chart.js)

@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnNavSelectAll  = document.getElementById('btn-nav-select-all');
     const btnNavClearAll   = document.getElementById('btn-nav-clear-all');
     const navPreviewTitle  = document.getElementById('nav-preview-title');
+    const navPreviewSubtitle = document.getElementById('nav-preview-subtitle');
     const navTableThead    = document.getElementById('nav-table-thead');
     const navTableTbody    = document.getElementById('nav-table-tbody');
     const btnNavCancel     = document.getElementById('btn-nav-cancel');

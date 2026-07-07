@@ -1,0 +1,222 @@
+// ==========================================
+// EMAIL & CHATBOT - Modal and AI chat panel
+// ==========================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Email modal elements
+    const emailModal         = document.getElementById('email-modal');
+    const btnEmailTrigger    = document.getElementById('btn-email-modal-trigger');
+    const btnCloseModal      = document.getElementById('btn-close-modal');
+    const btnCancelEmail     = document.getElementById('btn-cancel-email');
+    const emailForm          = document.getElementById('email-form');
+
+    // Chatbot elements
+    const chatbotPanel       = document.getElementById('chatbot-panel');
+    const btnChatbotBubble   = document.getElementById('btn-chatbot-bubble');
+    const btnMinimizeChat    = document.getElementById('btn-minimize-chat');
+    const chatMessages       = document.getElementById('chat-messages');
+    const chatForm           = document.getElementById('chat-form');
+    const chatInput          = document.getElementById('chat-input');
+
+    // ---- EMAIL MODAL ----
+
+    if (btnEmailTrigger && emailModal) {
+        btnEmailTrigger.addEventListener('click', () => {
+            const activeProj   = getActiveProject();
+            const projectInput = document.getElementById('email-project');
+            if (projectInput) projectInput.value = activeProj;
+
+            emailModal.classList.add('active');
+
+            const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+            let subject   = `Daily Test Operations Report - ${dateStr}`;
+            const attachSpan = document.querySelector('.attachment-details span');
+
+            if (activeProj) {
+                subject = `Project ${activeProj} Test Operations Report - ${dateStr}`;
+                if (attachSpan) attachSpan.textContent = `Gantt_Report_${activeProj}.pdf`;
+            } else {
+                if (attachSpan) attachSpan.textContent = 'Operations_Report.pdf';
+            }
+
+            const subjectEl = document.getElementById('email-subject');
+            if (subjectEl) subjectEl.value = subject;
+        });
+    }
+
+    function closeEmailModal() {
+        if (emailModal) emailModal.classList.remove('active');
+        if (emailForm)  emailForm.reset();
+    }
+
+    if (btnCloseModal)  btnCloseModal.addEventListener('click', closeEmailModal);
+    if (btnCancelEmail) btnCancelEmail.addEventListener('click', closeEmailModal);
+
+    if (emailForm) {
+        emailForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const recipient  = document.getElementById('email-to').value.trim();
+            const subject    = document.getElementById('email-subject').value.trim();
+            const body       = document.getElementById('email-body').value.trim();
+            const projectVal = document.getElementById('email-project').value;
+            const btnSubmit  = emailForm.querySelector('button[type="submit"]');
+
+            btnSubmit.disabled = true;
+            btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Dispatched...';
+
+            const formData = new FormData();
+            formData.append('recipient', recipient);
+            formData.append('subject', subject);
+            formData.append('body', body);
+            if (projectVal) formData.append('project', projectVal);
+
+            fetch('/send-email', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        closeEmailModal();
+                        window.showToast(data.message, 'success');
+                    } else {
+                        window.showToast(data.message || 'Unable to send email.', 'error');
+                    }
+
+                    const logModal   = document.getElementById('email-log-modal');
+                    const logContent = document.getElementById('email-log-content');
+                    if (data.mode === 'simulation' && logModal && logContent) {
+                        const pdfName = projectVal ? `Gantt_Report_${projectVal}.pdf` : 'Operations_Report.pdf';
+                        logContent.textContent = `[GRAPH API SIMULATOR - ${new Date().toISOString()}]
+Connecting to mail server... SIMULATED
+FROM: ${document.getElementById('email-to').value}
+TO: ${recipient}
+SUBJECT: ${subject}
+ATTACHMENTS: ${pdfName} (Generated)
+BODY:
+${body}
+--------------------------------------------------
+Mail Status: Queued and Sent successfully (Simulated)`;
+                        logModal.style.display = 'flex';
+                    } else if (logModal) {
+                        logModal.style.display = 'none';
+                    }
+                })
+                .catch(err => {
+                    window.showToast('Failed to dispatch report email.', 'error');
+                    console.error(err);
+                })
+                .finally(() => {
+                    btnSubmit.disabled = false;
+                    btnSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Email';
+                });
+        });
+    }
+
+    // Close log modal
+    const btnCloseLog = document.getElementById('btn-close-log-modal');
+    const btnLogOk    = document.getElementById('btn-close-log-ok');
+    if (btnCloseLog) btnCloseLog.addEventListener('click', () => document.getElementById('email-log-modal').style.display = 'none');
+    if (btnLogOk)    btnLogOk.addEventListener('click',    () => document.getElementById('email-log-modal').style.display = 'none');
+
+    // ---- CHATBOT ----
+
+    if (btnChatbotBubble && chatbotPanel) {
+        btnChatbotBubble.addEventListener('click', () => {
+            chatbotPanel.classList.toggle('active');
+            btnChatbotBubble.classList.toggle('active');
+        });
+    }
+
+    if (btnMinimizeChat && chatbotPanel) {
+        btnMinimizeChat.addEventListener('click', () => {
+            chatbotPanel.classList.remove('active');
+            if (btnChatbotBubble) btnChatbotBubble.classList.remove('active');
+        });
+    }
+
+    if (chatForm) {
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const query = chatInput.value.trim();
+            if (!query) return;
+
+            appendMessage(query, 'user');
+            chatInput.value = '';
+
+            const lowerQuery    = query.toLowerCase();
+            const generateMatch = lowerQuery.match(/generate\s+(?:a\s+)?(?:pdf\s+)?report\s+(?:for\s+)?(?:project\s+)?(\S+)/i)
+                || lowerQuery.match(/create\s+(?:a\s+)?(?:pdf\s+)?report\s+(?:for\s+)?(?:project\s+)?(\S+)/i)
+                || lowerQuery.match(/export\s+(?:pdf\s+)?(?:for\s+)?(?:project\s+)?(\S+)/i);
+
+            if (lowerQuery.includes('generate') || lowerQuery.includes('create report') || lowerQuery.includes('export pdf')) {
+                let targetProject = (window.OPS && window.OPS.currentProject) || '';
+                if (generateMatch && generateMatch[1]) targetProject = generateMatch[1].toUpperCase();
+                const typingId = appendTypingIndicator();
+                setTimeout(() => {
+                    removeTypingIndicator(typingId);
+                    appendMessage(`Generating PDF report for **Project ${targetProject}**... Downloading now!`, 'bot');
+                    if (typeof triggerPdfDownload === 'function') triggerPdfDownload(targetProject);
+                }, 1200);
+                return;
+            }
+
+            const typingId = appendTypingIndicator();
+            fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, project: window.OPS && window.OPS.currentProject })
+            })
+            .then(res => res.json())
+            .then(data => {
+                removeTypingIndicator(typingId);
+                appendMessage(data.response, 'bot');
+                if (data.generate_report && data.report_project) {
+                    setTimeout(() => triggerPdfDownload(data.report_project), 800);
+                }
+            })
+            .catch(err => {
+                removeTypingIndicator(typingId);
+                appendMessage("Sorry, I'm having trouble connecting right now. You can still use the **Export PDF Report** button in the sidebar to generate reports.", 'bot');
+                console.error('Chat Error:', err);
+            });
+        });
+    }
+
+    // ---- HELPERS ----
+
+    function appendMessage(text, sender) {
+        const msg = document.createElement('div');
+        msg.className = `chat-message ${sender}`;
+        const formatted = text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>');
+        msg.innerHTML = `<div class="message-bubble"><p>${formatted}</p></div>`;
+        chatMessages.appendChild(msg);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function appendTypingIndicator() {
+        const id  = 'typing-' + Date.now();
+        const msg = document.createElement('div');
+        msg.className = 'chat-message bot typing';
+        msg.id = id;
+        msg.innerHTML = `<div class="message-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
+        chatMessages.appendChild(msg);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return id;
+    }
+
+    function removeTypingIndicator(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    }
+
+    // Get active project from URL or dropdown
+    function getActiveProject() {
+        const path = window.location.pathname;
+        if (path.startsWith('/tables/')) return decodeURIComponent(path.split('/').pop());
+        const chartSel = document.getElementById('gantt-project-select');
+        if (chartSel && chartSel.value) return chartSel.value;
+        const dashSel  = document.getElementById('project-select');
+        if (dashSel && dashSel.value) return dashSel.value;
+        return '';
+    }
+});
