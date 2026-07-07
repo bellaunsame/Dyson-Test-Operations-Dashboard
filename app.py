@@ -1933,10 +1933,97 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         'years': 'Annual Slice'
     }.get(timeline_type, 'Timeline Slice')
 
+    # Calculate dynamic scale timeline headers
+    timeline_headers = []
+
     if min_date and max_date:
+        # Convert to date objects for clean boundary adjustments
+        min_d = min_date.date() if isinstance(min_date, datetime.datetime) else min_date
+        max_d = max_date.date() if isinstance(max_date, datetime.datetime) else max_date
+
+        if timeline_type == 'days':
+            pass
+        elif timeline_type == 'months':
+            min_d = datetime.date(min_d.year, min_d.month, 1)
+            if max_d.month == 12:
+                max_d = datetime.date(max_d.year, 12, 31)
+            else:
+                next_month = datetime.date(max_d.year, max_d.month + 1, 1)
+                max_d = next_month - datetime.timedelta(days=1)
+        elif timeline_type == 'years':
+            min_d = datetime.date(min_d.year, 1, 1)
+            max_d = datetime.date(max_d.year, 12, 31)
+        else: # 'weeks'
+            span = (max_d - min_d).days + 1
+            rem = span % 7
+            if rem > 0:
+                max_d = max_d + datetime.timedelta(days=(7 - rem))
+
+        # Re-assign back to min_date and max_date as datetime objects combined with time.min
+        min_date = datetime.datetime.combine(min_d, datetime.time.min)
+        max_date = datetime.datetime.combine(max_d, datetime.time.min)
+
         total_span_days = max((max_date - min_date).days, 1)
         # full timeline in weeks for header numbering
         total_weeks = int((total_span_days + 6) // 7)
+
+        # Build timeline headers list with exact width percentages based on duration of each unit in total_span_days
+        min_date_val = min_date.date()
+        max_date_val = max_date.date()
+        
+        if timeline_type == 'days':
+            width_pct = (1.0 / float(total_span_days)) * 100.0
+            for i in range(1, total_span_days + 1):
+                label = ""
+                if total_span_days <= 35:
+                    label = str(i)
+                else:
+                    if i == 1 or i % 5 == 0:
+                        label = str(i)
+                timeline_headers.append({
+                    "label": label,
+                    "width_pct": round(width_pct, 4)
+                })
+        elif timeline_type == 'months':
+            curr = min_date_val
+            while curr <= max_date_val:
+                month_start = max(curr, min_date_val)
+                if curr.month == 12:
+                    next_month_start = datetime.date(curr.year + 1, 1, 1)
+                else:
+                    next_month_start = datetime.date(curr.year, curr.month + 1, 1)
+                month_end = min(next_month_start, max_date_val + datetime.timedelta(days=1))
+                
+                days_in_month = (month_end - month_start).days
+                if days_in_month > 0:
+                    width_pct = (days_in_month / float(total_span_days)) * 100.0
+                    timeline_headers.append({
+                        "label": curr.strftime('%b'),
+                        "width_pct": round(width_pct, 4)
+                    })
+                curr = next_month_start
+        elif timeline_type == 'years':
+            curr_year = min_date_val.year
+            while curr_year <= max_date_val.year:
+                year_start = max(datetime.date(curr_year, 1, 1), min_date_val)
+                year_end = min(datetime.date(curr_year + 1, 1, 1), max_date_val + datetime.timedelta(days=1))
+                
+                days_in_year = (year_end - year_start).days
+                if days_in_year > 0:
+                    width_pct = (days_in_year / float(total_span_days)) * 100.0
+                    timeline_headers.append({
+                        "label": str(curr_year),
+                        "width_pct": round(width_pct, 4)
+                    })
+                curr_year += 1
+        else: # 'weeks'
+            width_pct = (7.0 / float(total_span_days)) * 100.0
+            total_weeks_val = total_span_days // 7
+            for i in range(1, total_weeks_val + 1):
+                timeline_headers.append({
+                    "label": str(i),
+                    "width_pct": round(width_pct, 4)
+                })
 
         chunk_rows = []
         for r in records_dict:
@@ -2063,7 +2150,8 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         "selected_category": category_filter if category_filter and str(category_filter).strip().lower() != 'all' else 'All Categories',
         "timeline_type": timeline_type,
         "timeline_label": timeline_label,
-        "timeline_slice_label": slice_label
+        "timeline_slice_label": slice_label,
+        "timeline_headers": timeline_headers
     }
     # Add full timeline meta for template rendering
     try:
