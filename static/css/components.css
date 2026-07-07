@@ -456,5 +456,56 @@
 
 /* --- GANTT LEGEND --- */
 .gantt-legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 15px; margin-top: 15px; }
-.legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); }
 .legend-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+/* --- REDESIGNED EMAIL MODAL --- */
+.email-modal-card {
+    max-width: 600px !important;
+    background: rgba(23, 23, 26, 0.96) !important;
+    backdrop-filter: blur(16px);
+}
+
+
+
+/* --- GLOBAL FORM STYLES --- */
+.form-group {
+    margin-bottom: 20px;
+}
+.form-group label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 10px 14px;
+    background-color: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    color: var(--color-text-main);
+    font-family: inherit;
+    font-size: 13px;
+    transition: all var(--transition-speed);
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-glow);
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+#email-body {
+    min-height: 240px;
+    resize: vertical;
+}
+
+
+
