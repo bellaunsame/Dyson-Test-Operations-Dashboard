@@ -12,8 +12,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const statRows = document.getElementById('stat-rows');
     const statCats = document.getElementById('stat-cats');
-    const statSpan = document.getElementById('stat-span');
-    const statBars = document.getElementById('stat-bars');
     const statDefects = document.getElementById('stat-defects');
     const statsRow = document.querySelector('.gantt-stats-row');
 
@@ -217,8 +215,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         statRows.textContent = '—';
         statCats.textContent = '—';
-        statSpan.textContent = '—';
-        statBars.textContent = '—';
         statDefects.textContent = '—';
 
         if (ganttChartInstance) {
@@ -313,16 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statRows.textContent = filteredRecords.length;
         const uniqueCats = new Set(filteredRecords.map(r => r.Category));
         statCats.textContent = uniqueCats.size;
-        statBars.textContent = totalBarsCount;
         statDefects.textContent = totalDefectsCount;
-
-        if (minDate && maxDate) {
-            const diffTime = Math.abs(maxDate - minDate);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            statSpan.textContent = `${diffDays} Days (~${Math.ceil(diffDays / 7)} Wks)`;
-        } else {
-            statSpan.textContent = '—';
-        }
 
         // Adjust Canvas parent container height dynamically based on number of bars
         const uniqueYLabels = Array.from(new Set(chartData.map(d => d.y)));
