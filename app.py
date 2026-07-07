@@ -1865,6 +1865,10 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         for p in ExcelDataStore.get_projects():
             records_dict.extend(ExcelDataStore.get_project_rows(p["name"]))
             
+    # Apply category filter if specified
+    if category_filter and str(category_filter).strip().lower() != 'all':
+        records_dict = [r for r in records_dict if str(r.get("Category", "")).strip().lower() == str(category_filter).strip().lower()]
+            
     # Calculate global date boundaries
     min_date = None
     max_date = None
@@ -2294,16 +2298,18 @@ def generate_consolidated_pdf_report(filename, progress_callback=None, category_
 def generate_report():
     project_name = request.args.get('project')
     category = request.args.get('category', 'all')
+    timeline_type = request.args.get('scale') or request.args.get('timeline') or 'weeks'
     
     print("================================")
     print("PROJECT =", project_name)
     print("CATEGORY =", category)
+    print("TIMELINE TYPE =", timeline_type)
     print("================================")
     
     comment = request.args.get('comment')
     pdf_filename = os.path.join(UPLOAD_FOLDER, "Daily_Operations_Report.pdf")
     try:
-        generate_pdf_report(pdf_filename, project_name, comment)
+        generate_pdf_report(pdf_filename, project_name, comment, category_filter=category, timeline_type=timeline_type)
         download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
         return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     except Exception as e:
@@ -2314,9 +2320,11 @@ def generate_report():
 @app.route('/generate-consolidated-report', methods=['GET'])
 @login_required
 def generate_consolidated_report():
+    category = request.args.get('category', 'all')
+    timeline_type = request.args.get('scale') or request.args.get('timeline') or 'weeks'
     pdf_filename = os.path.join(UPLOAD_FOLDER, "Consolidated_Project_Report.pdf")
     try:
-        generate_consolidated_pdf_report(pdf_filename)
+        generate_consolidated_pdf_report(pdf_filename, category_filter=category, timeline_type=timeline_type)
         return send_file(pdf_filename, as_attachment=True, download_name="Consolidated_Project_Report.pdf", mimetype='application/pdf')
     except Exception as e:
         return jsonify({"error": f"Failed to generate consolidated PDF: {str(e)}"}), 500

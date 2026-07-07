@@ -27,10 +27,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const activeProj = getActiveProjectContext();
             if (!activeProj) {
                 window.showToast('No project selected — exporting full consolidated PDF report...', 'info');
-                triggerConsolidatedPdfDownload();
+                const catSel = document.getElementById('gantt-category-select') || document.getElementById('category-select');
+                const activeCategory = catSel ? catSel.value : 'all';
+                const activeScaleBtn = document.querySelector('.scale-btn.active');
+                const activeScale = activeScaleBtn ? activeScaleBtn.getAttribute('data-scale') : 'week';
+                triggerConsolidatedPdfDownload(activeCategory, activeScale);
                 return;
             }
-            triggerPdfDownload(activeProj);
+            const catSel = document.getElementById('gantt-category-select') || document.getElementById('category-select');
+            const activeCategory = catSel ? catSel.value : 'all';
+            const activeScaleBtn = document.querySelector('.scale-btn.active');
+            const activeScale = activeScaleBtn ? activeScaleBtn.getAttribute('data-scale') : 'week';
+            triggerPdfDownload(activeProj, activeCategory, activeScale);
         });
     }
 
@@ -149,13 +157,13 @@ function triggerPdfDownload(projectName, categoryFilter, scaleFilter) {
 }
 
 // Consolidated PDF (all projects)
-function triggerConsolidatedPdfDownload() {
+function triggerConsolidatedPdfDownload(categoryFilter, scaleFilter) {
     const modal = document.getElementById('export-progress-modal');
-    const bar   = document.getElementById('export-progress-bar');
-    const msg   = document.getElementById('export-progress-message');
-    const pct   = document.getElementById('export-progress-percent');
-    const title = document.getElementById('export-progress-title');
-    const desc  = document.getElementById('export-progress-desc');
+    const bar     = document.getElementById('export-progress-bar');
+    const msg     = document.getElementById('export-progress-message');
+    const pct     = document.getElementById('export-progress-percent');
+    const title   = document.getElementById('export-progress-title');
+    const desc    = document.getElementById('export-progress-desc');
 
     if (title) title.textContent = 'Compiling Full PDF Report';
     if (desc)  desc.textContent  = 'Generating timelines and defect summaries for all projects.';
@@ -194,7 +202,11 @@ function triggerConsolidatedPdfDownload() {
         }, 600);
     };
 
-    fetch('/api/export-consolidated/start', { method: 'POST' })
+    fetch('/api/export-consolidated/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: categoryFilter, scale: scaleFilter })
+    })
         .then(r => { if (!r.ok) throw new Error('Failed to start export'); return r.json(); })
         .then(data => poll(data.task_id))
         .catch(err => {
