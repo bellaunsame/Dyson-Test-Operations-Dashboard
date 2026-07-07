@@ -85,13 +85,8 @@ function renderGanttChart(rows, scale = 'day') {
     today.setHours(0, 0, 0, 0);
 
     // Update summary stats
-    const statBars  = document.getElementById('gantt-stat-bars');
-    const statSpan  = document.getElementById('gantt-stat-span');
     const statToday = document.getElementById('gantt-stat-today');
     const fmtDate   = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-    if (statBars) statBars.textContent = `${chartData.length} phase bar${chartData.length !== 1 ? 's' : ''} · ${rows.length} test record${rows.length !== 1 ? 's' : ''}`;
-    if (statSpan) statSpan.textContent = `Timeline: ${fmtDate(new Date(Math.min(...allDates)))} → ${fmtDate(new Date(Math.max(...allDates)))}`;
     if (statToday) {
         const projectEnd = new Date(Math.max(...chartData.map(d => d.x[1].getTime())));
         const daysLeft   = Math.ceil((projectEnd - today) / 86400000);

@@ -118,6 +118,16 @@
     </div>
   </div>
 
+  <!-- Legend -->
+  <div class="gantt-legend">
+      <span style="font-size:12px;font-weight:600;color:var(--color-text-muted);">PHASES:</span>
+      <div class="legend-item"><div class="legend-dot" style="background:#8E44AD;"></div> Proto</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#2980B9;"></div> DVT</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#27AE60;"></div> EVT</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#D35400;"></div> PVT</div>
+      <div class="legend-item" style="margin-left:8px;"><div style="width:3px;height:14px;background:#ff3b30;border-radius:2px;"></div> Today</div>
+  </div>
+
   <div class="gantt-card">
     <div class="gantt-body">
       <div id="gantt-empty-state" class="gantt-instructions" style="text-align:center;padding:48px;">
@@ -130,8 +140,6 @@
       <div class="gantt-stats-row" style="display:none;">
         <div class="gantt-stat"><span class="gantt-stat-label">Test Rows</span><span class="gantt-stat-value" id="stat-rows">—</span></div>
         <div class="gantt-stat"><span class="gantt-stat-label">Categories</span><span class="gantt-stat-value" id="stat-cats">—</span></div>
-        <div class="gantt-stat"><span class="gantt-stat-label">Timeline Span</span><span class="gantt-stat-value" id="stat-span">—</span></div>
-        <div class="gantt-stat"><span class="gantt-stat-label">Phase Bars</span><span class="gantt-stat-value" id="stat-bars">—</span></div>
         <div class="gantt-stat"><span class="gantt-stat-label">Total Defects</span><span class="gantt-stat-value" id="stat-defects">—</span></div>
       </div>
       <div id="gantt-canvas-wrap" style="display:none;">
