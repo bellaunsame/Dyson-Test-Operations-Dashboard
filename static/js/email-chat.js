@@ -104,7 +104,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(data => {
                     if (data.success) {
                         closeEmailModal();
-                        window.showToast(data.message, 'success');
+                        if (data.mode === 'simulation') {
+                            window.showToast(data.message, 'info');
+                        } else {
+                            window.showToast(data.message, 'success');
+                        }
                     } else {
                         window.showToast(data.message || 'Unable to send email.', 'error');
                     }
@@ -122,7 +126,7 @@ ATTACHMENTS: ${pdfName} (Generated)
 BODY:
 ${body}
 --------------------------------------------------
-Mail Status: Queued and Sent successfully (Simulated)`;
+Mail Status: Simulated (No actual email sent due to incomplete Microsoft Graph credentials)`;
                         logModal.style.display = 'flex';
                     } else if (logModal) {
                         logModal.style.display = 'none';
