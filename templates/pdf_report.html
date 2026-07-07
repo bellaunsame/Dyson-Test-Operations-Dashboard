@@ -356,7 +356,7 @@
 {% endif %}
 
 <!-- ===================== PAGE 3+: DETAILED RECORDS BY CATEGORY ===================== -->
-{% for cat_name, cat_records in records_by_cat.items() %}
+{#% for cat_name, cat_records in records_by_cat.items() %}
 <div class="page page-break">
     <div class="section-header dark">
         <h2>Test Records: {{ cat_name }}</h2>
@@ -404,7 +404,7 @@
         </tbody>
     </table>
 </div>
-{% endfor %}
+{% endfor %#}
 
 <!-- ===================== PAGE N: REJECTED PRODUCTS INVENTORY ===================== -->
 {% if rejected_records %}

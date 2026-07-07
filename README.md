@@ -70,8 +70,8 @@ test-ops-dashboard/
 
 ### 1. Clone & Navigate to Project
 ```bash
-git clone <repository-url>
-cd test-ops-dashboard
+
+cd dyson-test-operations-dashboard
 ```
 
 ### 2. Set Up Virtual Environment
@@ -86,14 +86,6 @@ python -m venv venv
 venv\Scripts\activate
 ```
 
-**On macOS/Linux:**
-```bash
-# Create virtual environment
-python3 -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate
-```
 
 ### 3. Install Dependencies
 Ensure you install all required packages listed in the pinned requirements file:
@@ -121,7 +113,7 @@ python app.py
 python3 app.py
 ```
 
-Open your browser and navigate to `http://localhost:5002/`.
+Open your browser and navigate to `http://10.69.4.22:5002`.
 
 ### 6. Run Unit Tests
 To verify backend functionality, you can run tests using `pytest` or Python's built-in `unittest` module:

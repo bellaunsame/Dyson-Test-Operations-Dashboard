@@ -68,7 +68,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const commentValue = pdfComment ? (pdfComment.value || '').trim() : '';
                 sessionStorage.setItem('pdf_comment_' + currentProjectName, commentValue);
 
-                const params = new URLSearchParams({ project: currentProjectName });
+                const params = new URLSearchParams({ 
+                    project: currentProjectName,
+                    category: currentCategory
+                 });
                 if (commentValue) {
                     params.set('comment', commentValue);
                 }
@@ -415,8 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     },
                     interaction: {
                         mode: 'nearest',
-                        axis: 'x',
-                        intersect: false
+                        intersect: true
                     },
                     plugins: {
                         legend: { display: false },
@@ -428,11 +430,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         },
                         subtitle: {
                             display: true,
-                            text: 'Phase-level timeline with start/end dates, defects, and notes for the selected project.',
-                            color: '#b0b0b0',
-                            font: { size: 12 }
+                            text: '🟪 Proto    🟦 DVT    🟩 EVT    🟧 PVT',
+                            color: '#d1d5db',
+                            font: { size: 12, weight: '600' }
                         },
                         tooltip: {
+                            mode: 'nearest',
+                            intersect: true,
+
                             backgroundColor: 'rgba(30, 30, 30, 0.95)',
                             titleColor: '#ffffff',
                             bodyColor: '#f1f1f1',
@@ -448,17 +453,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const startStr = raw.x[0].toISOString().split('T')[0];
                                     const endStr = raw.x[1].toISOString().split('T')[0];
                                     const durationDays = Math.max(1, Math.round((new Date(raw.x[1]) - new Date(raw.x[0])) / (1000 * 60 * 60 * 24)));
-                                    const lines = [
-                                        `Phase: ${raw.phase}`,
+
+                                    return [
                                         `Start: ${startStr}`,
                                         `End: ${endStr}`,
                                         `Duration: ${durationDays} days`,
-                                        `Defects: ${raw.defects}`
                                     ];
-                                    if (raw.comment) {
-                                        lines.push(`Notes: ${raw.comment}`);
-                                    }
-                                    return lines;
                                 }
                             }
                         }

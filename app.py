@@ -1751,7 +1751,7 @@ def generate_pdf_fallback(filename, project_name=None, comment=None, records_dic
 
 
 # --- PDF REPORT GENERATION ---
-def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None):
+def generate_pdf_report(filename, project_name=None, comment=None, category='all', progress_callback=None):
     """Generates a styled Test Operations PDF report by rendering a Jinja HTML template and using Edge/Chrome headless to print to PDF."""
     if progress_callback:
         progress_callback(10, "Analyzing project data...")
@@ -1762,6 +1762,16 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         records_dict = []
         for p in ExcelDataStore.get_projects():
             records_dict.extend(ExcelDataStore.get_project_rows(p["name"]))
+        
+    print("BEFORE FILTER:", len(records_dict))
+    
+    # Filter by selected category
+    if category and category.lower() != 'all':
+        records_dict = [
+            r for r in records_dict
+            if str(r.get("Category", "")).strip() == category
+        ]        
+    print("AFTER FILTER:", len(records_dict))  
             
     # Calculate global date boundaries
     min_date = None
@@ -2079,14 +2089,49 @@ def generate_consolidated_pdf_report(filename, progress_callback=None):
 @login_required
 def generate_report():
     project_name = request.args.get('project')
+    category = request.args.get('category', 'all')
+    
+    print("================================")
+    print("PROJECT =", project_name)
+    print("CATEGORY =", category)
+    print("================================")
+    
     comment = request.args.get('comment')
-    pdf_filename = os.path.join(UPLOAD_FOLDER, "Daily_Operations_Report.pdf")
+
+    pdf_filename = os.path.join(
+        UPLOAD_FOLDER,
+        "Daily_Operations_Report.pdf"
+    )
+
     try:
-        generate_pdf_report(pdf_filename, project_name, comment)
-        download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
-        return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
+        generate_pdf_report(
+            pdf_filename,
+            project_name,
+            comment,
+            category
+        )
+
+        if category and category.lower() != 'all':
+            safe_category = category.replace(" ", "_")
+            download_name = f"Gantt_Report_{project_name}_{safe_category}.pdf"
+        else:
+            download_name = (
+                f"Gantt_Report_{project_name}.pdf"
+                if project_name
+                else "Operations_Report.pdf"
+            )
+
+        return send_file(
+            pdf_filename,
+            as_attachment=True,
+            download_name=download_name,
+            mimetype='application/pdf'
+        )
+
     except Exception as e:
-        return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
+        return jsonify({
+            "error": f"Failed to generate PDF: {str(e)}"
+        }), 500
 
 @app.route('/generate-consolidated-report', methods=['GET'])
 @login_required
@@ -2292,7 +2337,7 @@ def export_excel():
 @app.route('/send-email', methods=['POST'])
 @login_required
 def send_email():
-    recipient = request.form.get('recipient') or os.getenv('MAIL_RECIPIENT', 'operations-manager@ops.com')
+    recipient = request.form.get('recipient') or os.getenv('MAIL_RECIPIENT', 'operations-@ops.com')
     subject = request.form.get('subject') or f"Daily Test Operations Report - {datetime.date.today().strftime('%Y-%m-%d')}"
     body = request.form.get('body') or """Dear Team,
 
