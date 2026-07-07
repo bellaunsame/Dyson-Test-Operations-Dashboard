@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.showToast(`Exporting PDF for ${currentProjectName}...`, 'info');
                 }
                 if (window.triggerPdfDownload) {
-                    window.triggerPdfDownload(currentProjectName);
+                    window.triggerPdfDownload(currentProjectName, currentCategory, currentScale);
                 } else {
                     const exportUrl = `/generate-report?${params.toString()}`;
                     window.location.assign(exportUrl);
@@ -418,6 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     },
                     interaction: {
                         mode: 'nearest',
+                        axis: 'x',
                         intersect: true
                     },
                     plugins: {
@@ -435,9 +436,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             font: { size: 12, weight: '600' }
                         },
                         tooltip: {
-                            mode: 'nearest',
-                            intersect: true,
-
                             backgroundColor: 'rgba(30, 30, 30, 0.95)',
                             titleColor: '#ffffff',
                             bodyColor: '#f1f1f1',

@@ -5,7 +5,7 @@ import json
 import uuid
 import threading
 from functools import wraps
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, session
 import pandas as pd
 from PIL import Image as PILImage
@@ -23,7 +23,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
 
 app = Flask(__name__)
-load_dotenv()
+load_dotenv(find_dotenv(filename='.env', raise_error_if_not_found=False), override=True)
 app.secret_key = "super_secret_key_for_ops_operations"
 
 # Configure App Data and Upload Folders
@@ -32,6 +32,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 EXCEL_PATH = os.path.join(UPLOAD_FOLDER, 'tasks.xlsx')
 SYNC_CONFIG_PATH = os.path.join(UPLOAD_FOLDER, 'sync_config.json')
+EMAIL_ATTACHMENT_MAX_MB = int(os.getenv('EMAIL_ATTACHMENT_MAX_MB', 18))
 
 # Initialize Excel file by copying template if it doesn't exist
 TEMPLATE_PATH = os.path.join(app.root_path, 'templates', 'SystemBoard.xlsx')
@@ -1688,7 +1689,7 @@ def convert_html_to_pdf(html_path, pdf_path):
     return True
 
 
-def generate_pdf_fallback(filename, project_name=None, comment=None, records_dict=None):
+def generate_pdf_fallback(filename, project_name=None, comment=None, records_dict=None, timeline_type='weeks'):
     """Create a simple ReportLab PDF when the browser-based renderer is unavailable."""
     if records_dict is None:
         records_dict = ExcelDataStore.get_project_rows(project_name) if project_name else []
@@ -1750,28 +1751,119 @@ def generate_pdf_fallback(filename, project_name=None, comment=None, records_dic
     return True
 
 
+def normalize_timeline_type(scale):
+    if not scale:
+        return 'weeks'
+    scale = str(scale).strip().lower()
+    if scale in ('day', 'days'):
+        return 'days'
+    if scale in ('week', 'weeks'):
+        return 'weeks'
+    if scale in ('month', 'months'):
+        return 'months'
+    if scale in ('year', 'years'):
+        return 'years'
+    return 'weeks'
+
+
+def filter_records_by_category(records, category_filter):
+    if not category_filter:
+        return records
+    category_filter = str(category_filter).strip().lower()
+    if category_filter in ('all', '', 'none'):
+        return records
+    return [r for r in records if str(r.get('Category', '')).strip().lower() == category_filter]
+
+
+def generate_email_summary_pdf(filename, project_name=None, comment=None):
+    """Generate a compact summary PDF suitable for email attachment fallback."""
+    records = ExcelDataStore.get_project_rows(project_name) if project_name else []
+    doc = SimpleDocTemplate(
+        filename,
+        pagesize=letter,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('Title', parent=styles['Title'], fontSize=16, leading=20, spaceAfter=10)
+    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=12, leading=14, spaceAfter=6)
+    body_style = ParagraphStyle('Body', parent=styles['BodyText'], fontSize=9, leading=12)
+    small_style = ParagraphStyle('Small', parent=styles['BodyText'], fontSize=8, leading=10, textColor=colors.HexColor('#475569'))
+
+    total_records = len(records)
+    total_defects = sum(int(r.get('Defect Qty', 0) or 0) for r in records)
+    total_comments = sum(1 for r in records if str(r.get('Comments', '')).strip())
+
+    story = []
+    story.append(Paragraph(f"Project Summary Report - {project_name or 'All Projects'}", title_style))
+    story.append(Paragraph(f"Generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", small_style))
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph('This attached summary report has been generated as a compact email attachment because the full project report exceeded the allowed attachment size.', body_style))
+    story.append(Spacer(1, 10))
+
+    summary_items = [
+        ('Project', project_name or 'All Projects'),
+        ('Total Task Records', str(total_records)),
+        ('Total Defects', str(total_defects)),
+        ('Total Comment Entries', str(total_comments)),
+    ]
+
+    for label, value in summary_items:
+        story.append(Paragraph(f'<b>{label}:</b> {value}', body_style))
+    story.append(Spacer(1, 10))
+
+    if comment:
+        story.append(Paragraph('Report Comment:', heading_style))
+        story.append(Paragraph(comment, body_style))
+        story.append(Spacer(1, 10))
+
+    if records:
+        table_data = [['Test Number', 'Status', 'Defect Qty', 'Comments']]
+        for record in records[:10]:
+            test_number = record.get('Test Number', '')
+            status = record.get('Status', '') or record.get('Current Status', '') or 'N/A'
+            defect_qty = str(record.get('Defect Qty', '') or '')
+            comments = str(record.get('Comments', '') or '')[:80]
+            table_data.append([test_number, status, defect_qty, comments])
+
+        table = Table(table_data, colWidths=[100, 110, 70, 240])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f2937')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (2, 0), (2, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#d1d5db')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(table)
+    else:
+        story.append(Paragraph('No task records were found for the selected project.', body_style))
+
+    doc.build(story)
+    return True
+
+
 # --- PDF REPORT GENERATION ---
-def generate_pdf_report(filename, project_name=None, comment=None, category='all', progress_callback=None):
+def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None, category_filter=None, timeline_type='weeks'):
     """Generates a styled Test Operations PDF report by rendering a Jinja HTML template and using Edge/Chrome headless to print to PDF."""
     if progress_callback:
         progress_callback(10, "Analyzing project data...")
-        
+
+    timeline_type = normalize_timeline_type(timeline_type)
     if project_name:
         records_dict = ExcelDataStore.get_project_rows(project_name)
     else:
         records_dict = []
         for p in ExcelDataStore.get_projects():
             records_dict.extend(ExcelDataStore.get_project_rows(p["name"]))
-        
-    print("BEFORE FILTER:", len(records_dict))
-    
-    # Filter by selected category
-    if category and category.lower() != 'all':
-        records_dict = [
-            r for r in records_dict
-            if str(r.get("Category", "")).strip() == category
-        ]        
-    print("AFTER FILTER:", len(records_dict))  
             
     # Calculate global date boundaries
     min_date = None
@@ -1815,94 +1907,100 @@ def generate_pdf_report(filename, project_name=None, comment=None, category='all
     if progress_callback:
         progress_callback(30, "Calculating visual timeline chunks...")
 
+    chunk_length_days = 28
+    if timeline_type == 'days':
+        chunk_length_days = 7
+    elif timeline_type == 'weeks':
+        chunk_length_days = 28
+    elif timeline_type == 'months':
+        chunk_length_days = 90
+    elif timeline_type == 'years':
+        chunk_length_days = 365
+
+    scale_labels = {
+        'days': 'Daily Timeline',
+        'weeks': 'Weekly Timeline',
+        'months': 'Monthly Timeline',
+        'years': 'Yearly Timeline'
+    }
+    timeline_label = scale_labels.get(timeline_type, 'Timeline')
+    slice_label = {
+        'days': '7-Day Slice',
+        'weeks': '4-Week Slice',
+        'months': 'Quarter Slice',
+        'years': 'Annual Slice'
+    }.get(timeline_type, 'Timeline Slice')
+
     if min_date and max_date:
         total_span_days = max((max_date - min_date).days, 1)
         # full timeline in weeks for header numbering
         total_weeks = int((total_span_days + 6) // 7)
-        current_start = min_date
-        chunk_idx = 1
-        while current_start < max_date:
-            current_end = current_start + datetime.timedelta(days=28)
-            chunk_rows = []
-            
-            for r in records_dict:
-                start_date = parse_date(r.get("Start Date"))
-                if not start_date:
-                    continue
-                
-                phases = [
-                    ("Proto", int(r.get("Proto Weeks", 0) or 0), int(r.get("Proto Days", 0) or 0), int(r.get("Proto Qty", 0) or 0)),
-                    ("DVT", int(r.get("DVT Weeks", 0) or 0), int(r.get("DVT Days", 0) or 0), int(r.get("DVT Qty", 0) or 0)),
-                    ("EVT", int(r.get("EVT Weeks", 0) or 0), int(r.get("EVT Days", 0) or 0), int(r.get("EVT Qty", 0) or 0)),
-                    ("PVT", int(r.get("PVT Weeks", 0) or 0), int(r.get("PVT Days", 0) or 0), int(r.get("PVT Qty", 0) or 0))
-                ]
-                
-                row_bars = []
-                phase_start = start_date
-                for phase_name, w, d, qty in phases:
-                    dur = w * 7 + d
-                    if dur <= 0:
-                        continue
-                    phase_end = phase_start + datetime.timedelta(days=dur)
-                    
-                    if phase_start < current_end and phase_end > current_start:
-                        clamped_start = max(phase_start, current_start)
-                        clamped_end = min(phase_end, current_end)
-                        clamped_dur = (clamped_end - clamped_start).days
-                        
-                        if clamped_dur > 0:
-                            offset_days = (clamped_start - current_start).days
-                            left_percent = (offset_days / 28.0) * 100.0
-                            width_percent = (clamped_dur / 28.0) * 100.0
-                            
-                            weeks_val = clamped_dur // 7
-                            days_val = clamped_dur % 7
-                            dur_text = f"{weeks_val}w" if weeks_val > 0 else ""
-                            if days_val > 0:
-                                dur_text += f"{days_val}d"
-                            if not dur_text:
-                                dur_text = "0d"
-                                
-                            # full-timeline percentages (relative to global min/max)
-                            try:
-                                full_left = ((clamped_start - min_date).days / float(total_span_days)) * 100.0
-                            except Exception:
-                                full_left = 0.0
-                            try:
-                                full_width = (clamped_dur / float(total_span_days)) * 100.0
-                            except Exception:
-                                full_width = 0.0
 
-                            row_bars.append({
-                                "phase": phase_name,
-                                "color": phase_colors.get(phase_name, "#64748b"),
-                                "left_percent": round(left_percent, 2),
-                                "width_percent": round(width_percent, 2),
-                                "left_percent_full": round(full_left, 2),
-                                "width_percent_full": round(full_width, 2),
-                                "duration_text": dur_text,
-                                "qty": qty,
-                                "start_date": clamped_start.strftime("%Y-%m-%d"),
-                                "end_date": clamped_end.strftime("%Y-%m-%d")
-                            })
-                    phase_start = phase_end
-                    
-                if row_bars:
-                    chunk_rows.append({
-                        "method": r.get("Test Method", "Untitled"),
-                        "number": r.get("Test Number", "Unknown"),
-                        "category": r.get("Category", "General"),
-                        "bars": row_bars
+        chunk_rows = []
+        for r in records_dict:
+            start_date = parse_date(r.get("Start Date"))
+            if not start_date:
+                continue
+            
+            phases = [
+                ("Proto", int(r.get("Proto Weeks", 0) or 0), int(r.get("Proto Days", 0) or 0), int(r.get("Proto Qty", 0) or 0)),
+                ("DVT", int(r.get("DVT Weeks", 0) or 0), int(r.get("DVT Days", 0) or 0), int(r.get("DVT Qty", 0) or 0)),
+                ("EVT", int(r.get("EVT Weeks", 0) or 0), int(r.get("EVT Days", 0) or 0), int(r.get("EVT Qty", 0) or 0)),
+                ("PVT", int(r.get("PVT Weeks", 0) or 0), int(r.get("PVT Days", 0) or 0), int(r.get("PVT Qty", 0) or 0))
+            ]
+            
+            row_bars = []
+            phase_start = start_date
+            for phase_name, w, d, qty in phases:
+                dur = w * 7 + d
+                if dur <= 0:
+                    continue
+                phase_end = phase_start + datetime.timedelta(days=dur)
+
+                clamped_start = max(phase_start, min_date)
+                clamped_end = min(phase_end, max_date)
+                clamped_dur = (clamped_end - clamped_start).days
+
+                if clamped_dur > 0:
+                    offset_days = (clamped_start - min_date).days
+                    full_left = ((clamped_start - min_date).days / float(total_span_days)) * 100.0
+                    full_width = (clamped_dur / float(total_span_days)) * 100.0
+
+                    weeks_val = clamped_dur // 7
+                    days_val = clamped_dur % 7
+                    dur_text = f"{weeks_val}w" if weeks_val > 0 else ""
+                    if days_val > 0:
+                        dur_text += f"{days_val}d"
+                    if not dur_text:
+                        dur_text = "0d"
+
+                    row_bars.append({
+                        "phase": phase_name,
+                        "color": phase_colors.get(phase_name, "#64748b"),
+                        "left_percent_full": round(full_left, 2),
+                        "width_percent_full": round(full_width, 2),
+                        "duration_text": dur_text,
+                        "qty": qty,
+                        "start_date": clamped_start.strftime("%Y-%m-%d"),
+                        "end_date": clamped_end.strftime("%Y-%m-%d")
                     })
-                    
-            if chunk_rows:
-                timeline_chunks.append({
-                    "start_str": current_start.strftime("%Y-%m-%d"),
-                    "end_str": (current_end - datetime.timedelta(days=1)).strftime("%Y-%m-%d"),
-                    "rows": chunk_rows
+
+                phase_start = phase_end
+                
+            if row_bars:
+                chunk_rows.append({
+                    "method": r.get("Test Method", "Untitled"),
+                    "number": r.get("Test Number", "Unknown"),
+                    "category": r.get("Category", "General"),
+                    "bars": row_bars
                 })
-            current_start = current_end
-            chunk_idx += 1
+
+        if chunk_rows:
+            timeline_chunks.append({
+                "start_str": min_date.strftime("%Y-%m-%d"),
+                "end_str": max_date.strftime("%Y-%m-%d"),
+                "rows": chunk_rows
+            })
 
     if progress_callback:
         progress_callback(50, "Preparing executive summary...")
@@ -1959,13 +2057,18 @@ def generate_pdf_report(filename, project_name=None, comment=None, category='all
         "timeline_chunks": timeline_chunks,
         "records_by_cat": records_by_cat,
         "rejected_records": rejected_records,
-        "rej_by_cat": rej_by_cat
+        "rej_by_cat": rej_by_cat,
+        "selected_category": category_filter if category_filter and str(category_filter).strip().lower() != 'all' else 'All Categories',
+        "timeline_type": timeline_type,
+        "timeline_label": timeline_label,
+        "timeline_slice_label": slice_label
     }
     # Add full timeline meta for template rendering
     try:
         if min_date and max_date:
-            total_span_days = max((max_date - min_date).days, 1)
-            total_weeks = int((total_span_days + 6) // 7)
+            # inclusive day count
+            total_span_days = max((max_date - min_date).days + 1, 1)
+            total_weeks = int(((total_span_days) + 6) // 7)
         else:
             total_span_days = 1
             total_weeks = 1
@@ -1973,11 +2076,24 @@ def generate_pdf_report(filename, project_name=None, comment=None, category='all
         total_span_days = 1
         total_weeks = 1
 
+    # Build per-day labels for the timeline footer (e.g. 'Jun 28', 'Jun 29')
+    day_labels = []
+    try:
+        if min_date and max_date:
+            day_count = (max_date - min_date).days + 1
+            for i in range(day_count):
+                d = (min_date + datetime.timedelta(days=i))
+                # Short format 'Mon dd' or 'Jun 28'
+                day_labels.append(d.strftime('%b %d'))
+    except Exception:
+        day_labels = []
+
     context.update({
         "full_timeline_weeks": total_weeks,
         "full_timeline_start": min_date.strftime("%Y-%m-%d") if min_date else None,
         "full_timeline_end": max_date.strftime("%Y-%m-%d") if max_date else None,
-        "full_timeline_days": total_span_days
+        "full_timeline_days": total_span_days,
+        "full_timeline_day_labels": day_labels
     })
 
     if progress_callback:
@@ -1998,7 +2114,7 @@ def generate_pdf_report(filename, project_name=None, comment=None, category='all
         except Exception as browser_error:
             if progress_callback:
                 progress_callback(90, "Browser PDF renderer unavailable; using fallback export...")
-            generate_pdf_fallback(filename, project_name=project_name, comment=comment, records_dict=records_dict)
+            generate_pdf_fallback(filename, project_name=project_name, comment=comment, records_dict=records_dict, timeline_type=timeline_type)
         if progress_callback:
             progress_callback(100, "Completed!")
     finally:
@@ -2010,7 +2126,7 @@ def generate_pdf_report(filename, project_name=None, comment=None, category='all
 
 
 # --- CONSOLIDATED PDF REPORT GENERATION ---
-def generate_consolidated_pdf_report(filename, progress_callback=None):
+def generate_consolidated_pdf_report(filename, progress_callback=None, category_filter=None, timeline_type='weeks'):
     """Generates a consolidated PDF for ALL active projects by rendering each project
     separately and merging the resulting PDFs with PyPDF2."""
     projects = ExcelDataStore.get_projects()
@@ -2037,7 +2153,7 @@ def generate_consolidated_pdf_report(filename, progress_callback=None):
                 progress_callback(mapped, msg)
 
         try:
-            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress)
+            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress, category_filter=category_filter, timeline_type=timeline_type)
             per_project_pdfs.append(tmp_pdf.name)
         except Exception as e:
             # Skip failed projects but log the error
@@ -2097,37 +2213,11 @@ def generate_report():
     print("================================")
     
     comment = request.args.get('comment')
-
-    pdf_filename = os.path.join(
-        UPLOAD_FOLDER,
-        "Daily_Operations_Report.pdf"
-    )
-
+    pdf_filename = os.path.join(UPLOAD_FOLDER, "Daily_Operations_Report.pdf")
     try:
-        generate_pdf_report(
-            pdf_filename,
-            project_name,
-            comment,
-            category
-        )
-
-        if category and category.lower() != 'all':
-            safe_category = category.replace(" ", "_")
-            download_name = f"Gantt_Report_{project_name}_{safe_category}.pdf"
-        else:
-            download_name = (
-                f"Gantt_Report_{project_name}.pdf"
-                if project_name
-                else "Operations_Report.pdf"
-            )
-
-        return send_file(
-            pdf_filename,
-            as_attachment=True,
-            download_name=download_name,
-            mimetype='application/pdf'
-        )
-
+        generate_pdf_report(pdf_filename, project_name, comment)
+        download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
+        return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     except Exception as e:
         return jsonify({
             "error": f"Failed to generate PDF: {str(e)}"
@@ -2149,6 +2239,10 @@ export_tasks = {}
 @app.route('/api/export-consolidated/start', methods=['POST'])
 @login_required
 def start_consolidated_export():
+    data = request.json or {}
+    category_filter = data.get('category')
+    timeline_type = data.get('scale') or data.get('timeline')
+
     task_id = str(uuid.uuid4())
     export_tasks[task_id] = {
         "status": "processing",
@@ -2165,7 +2259,7 @@ def start_consolidated_export():
                 export_tasks[task_id]["message"] = msg
             
         try:
-            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress)
+            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type)
             if task_id in export_tasks:
                 export_tasks[task_id]["status"] = "completed"
                 export_tasks[task_id]["progress"] = 100
@@ -2191,6 +2285,8 @@ def start_project_export():
     data = request.json or {}
     project_name = data.get('project')
     comment = data.get('comment')
+    category_filter = data.get('category')
+    timeline_type = data.get('scale') or data.get('timeline')
     
     task_id = str(uuid.uuid4())
     export_tasks[task_id] = {
@@ -2208,7 +2304,7 @@ def start_project_export():
                 export_tasks[task_id]["message"] = msg
             
         try:
-            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress)
+            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type)
             if task_id in export_tasks:
                 export_tasks[task_id]["status"] = "completed"
                 export_tasks[task_id]["progress"] = 100
@@ -2347,75 +2443,137 @@ This email was auto-generated by the Operations Dashboard."""
 
     project_name = request.form.get('project')
 
-    # Step 1: Always generate the PDF
+    # Step 1: Generate the PDF report
     pdf_filename = os.path.join(UPLOAD_FOLDER, "email_report.pdf")
     try:
         generate_pdf_report(pdf_filename, project_name)
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF for email: {str(e)}"}), 500
 
-    # Step 2: Attempt real SMTP send if credentials are configured
-    mail_server = os.getenv('MAIL_SERVER')
-    mail_username = os.getenv('MAIL_USERNAME')
-    mail_password = os.getenv('MAIL_PASSWORD')
-    mail_sender = os.getenv('MAIL_DEFAULT_SENDER') or os.getenv('MAIL_SENDER') or mail_username
-    mail_port = int(os.getenv('MAIL_PORT', 587))
-    mail_tls = os.getenv('MAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
-    mail_ssl = os.getenv('MAIL_USE_SSL', 'False').lower() in ('true', '1', 'yes')
-    mail_timeout = int(os.getenv('MAIL_TIMEOUT', 15))
+    # Step 2: Resolve attachment — compact summary if PDF exceeds size limit
+    attachment_size_limit_mb = int(os.getenv('EMAIL_ATTACHMENT_MAX_MB', EMAIL_ATTACHMENT_MAX_MB))
+    attachment_size_limit_bytes = attachment_size_limit_mb * 1024 * 1024
+    email_attachment_path = pdf_filename
+    attachment_warning = None
 
-    if mail_server:
+    if os.path.getsize(pdf_filename) > attachment_size_limit_bytes:
+        compact_pdf_filename = os.path.join(UPLOAD_FOLDER, "email_summary_report.pdf")
+        generate_email_summary_pdf(compact_pdf_filename, project_name)
+        email_attachment_path = compact_pdf_filename
+        attachment_warning = (
+            f"The full report exceeded the {attachment_size_limit_mb} MB attachment limit. "
+            "A compact summary is attached instead."
+        )
+        body = f"{body}\n\n{attachment_warning}"
+
+    pdf_download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
+    if email_attachment_path != pdf_filename:
+        pdf_download_name = f"Summary_Report_{project_name or 'Operations'}.pdf"
+
+    # Step 3: Send via Microsoft Graph API (Office 365)
+    tenant_id     = os.getenv('TENANT_ID')
+    client_id     = os.getenv('SHAREPOINT_CLIENT_ID')
+    client_secret = os.getenv('SHAREPOINT_CLIENT_SECRET')
+    sender_email  = os.getenv('MAIL_DEFAULT_SENDER') or os.getenv('MAIL_USERNAME')
+
+    if tenant_id and client_id and client_secret and sender_email:
         try:
-            import smtplib
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.text import MIMEText
-            from email.mime.application import MIMEApplication
+            import msal
+            import requests as _requests
+            import base64
 
-            if not mail_sender:
-                raise ValueError('MAIL_DEFAULT_SENDER or MAIL_USERNAME must be configured to send email.')
+            # Acquire OAuth2 access token using client credentials (same pattern as SharePoint)
+            authority = f"https://login.microsoftonline.com/{tenant_id}"
+            msal_app = msal.ConfidentialClientApplication(
+                client_id,
+                authority=authority,
+                client_credential=client_secret,
+            )
+            token_result = msal_app.acquire_token_for_client(
+                scopes=["https://graph.microsoft.com/.default"]
+            )
 
-            msg = MIMEMultipart()
-            msg['From'] = mail_sender
-            msg['To'] = recipient
-            msg['Subject'] = subject
-            msg.attach(MIMEText(body, 'plain'))
+            if "access_token" not in token_result:
+                error_desc = token_result.get(
+                    "error_description", token_result.get("error", "Unknown MSAL error")
+                )
+                raise RuntimeError(f"Failed to acquire Microsoft Graph token: {error_desc}")
 
-            with open(pdf_filename, 'rb') as f:
-                attachment = MIMEApplication(f.read(), _subtype='pdf')
-                pdf_download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
-                attachment.add_header('Content-Disposition', 'attachment', filename=pdf_download_name)
-                msg.attach(attachment)
+            access_token = token_result["access_token"]
 
-            if mail_ssl:
-                smtp_class = smtplib.SMTP_SSL
+            # Build the sendMail JSON payload with the PDF as a base64 attachment
+            with open(email_attachment_path, "rb") as f:
+                pdf_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+            mail_payload = {
+                "message": {
+                    "subject": subject,
+                    "body": {
+                        "contentType": "Text",
+                        "content": body
+                    },
+                    "toRecipients": [
+                        {"emailAddress": {"address": recipient}}
+                    ],
+                    "attachments": [
+                        {
+                            "@odata.type": "#microsoft.graph.fileAttachment",
+                            "name": pdf_download_name,
+                            "contentType": "application/pdf",
+                            "contentBytes": pdf_b64
+                        }
+                    ]
+                },
+                "saveToSentItems": "true"
+            }
+
+            # POST to the Graph API sendMail endpoint
+            graph_url = f"https://graph.microsoft.com/v1.0/users/{sender_email}/sendMail"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            resp = _requests.post(graph_url, headers=headers, json=mail_payload, timeout=30)
+
+            if resp.status_code == 202:
+                success_message = f"Email with PDF report successfully sent to {recipient} via Microsoft 365!"
+                if attachment_warning:
+                    success_message = (
+                        f"Email sent to {recipient} via Microsoft 365 with compact summary attachment "
+                        f"because the full report exceeded the {attachment_size_limit_mb} MB limit."
+                    )
+                return jsonify({
+                    "success": True,
+                    "mode": "microsoft_graph",
+                    "message": success_message,
+                    "attachment_mode": "compact_summary" if attachment_warning else "full_pdf",
+                    "attachment_warning": attachment_warning
+                })
             else:
-                smtp_class = smtplib.SMTP
+                # Graph returned a non-202 response — surface the error detail
+                try:
+                    err_detail = resp.json().get("error", {}).get("message", resp.text[:400])
+                except Exception:
+                    err_detail = resp.text[:400]
+                raise RuntimeError(f"Graph API returned HTTP {resp.status_code}: {err_detail}")
 
-            with smtp_class(mail_server, mail_port, timeout=mail_timeout) as smtp:
-                if not mail_ssl and mail_tls:
-                    smtp.starttls()
-                if mail_username and mail_password:
-                    smtp.login(mail_username, mail_password)
-                smtp.sendmail(mail_sender, recipient, msg.as_string())
-
-            return jsonify({
-                "success": True,
-                "mode": "smtp",
-                "message": f"Email with PDF report successfully sent to {recipient}!"
-            })
         except Exception as e:
+            print(f"Microsoft Graph Email Error: {type(e).__name__}: {e}")
             return jsonify({
                 "success": False,
-                "mode": "smtp",
-                "message": f"Failed to send email via SMTP: {str(e)}",
+                "mode": "microsoft_graph",
+                "message": f"Failed to send email via Microsoft Graph API: {type(e).__name__}: {str(e)}",
                 "error": str(e)
             }), 500
 
-    # Step 3: Simulation mode (no SMTP configured)
+    # Step 4: Simulation mode — Graph credentials not fully configured in .env
     return jsonify({
         "success": True,
         "mode": "simulation",
-        "message": f"Email simulated (no SMTP configured). PDF report generated and would be sent to {recipient}.",
+        "message": (
+            f"Email simulated (Microsoft Graph credentials not fully configured). "
+            f"PDF report generated and would be sent to {recipient}."
+        ),
         "pdf_generated": True,
         "recipient": recipient,
         "subject": subject
@@ -2448,3 +2606,4 @@ def add_header(response):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002, debug=True)
+    

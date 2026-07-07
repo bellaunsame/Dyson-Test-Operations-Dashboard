@@ -283,16 +283,16 @@
     {% endif %}
 </div>
 
-<!-- ===================== PAGE 2+: GANTT CHART SECTIONS ===================== -->
+<!-- ===================== PAGE 2+: GANTT CHART SECTION ===================== -->
 {% if timeline_chunks %}
-{% for chunk in timeline_chunks %}
+{% set chunk = timeline_chunks[0] %}
 <div class="page page-break">
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px;border-bottom:1px solid #e2e8f0;padding-bottom:8px;">
         <div>
             <h2 style="font-size:14px;font-weight:800;color:#0f172a;">Project Gantt Timeline</h2>
-            <p style="font-size:9px;margin-top:2px;">Chunk {{ loop.index }}: {{ chunk.start_str }} &rarr; {{ chunk.end_str }}</p>
+            <p style="font-size:9px;margin-top:2px;">Full Timeline: {{ chunk.start_str }} &rarr; {{ chunk.end_str }}</p>
         </div>
-        <span style="font-size:8px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">4-Week Slice</span>
+        <span style="font-size:8px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Full Project View</span>
     </div>
 
     <div class="gantt-container">
@@ -311,9 +311,8 @@
             </div>
         </div>
 
-        <!-- Gantt Rows -->
         {% if not chunk.rows %}
-        <div class="gantt-empty">No active timeline data in this period.</div>
+        <div class="gantt-empty">No active timeline data available.</div>
         {% endif %}
 
         {% for row in chunk.rows %}
@@ -325,7 +324,7 @@
             <div class="gantt-timeline" style="padding:6px 8px;">
                 <div style="display:flex;align-items:center;gap:6px;width:100%;">
                     <div style="width:40px;text-align:center;color:#64748b;font-size:9px;">{{ loop.index }}</div>
-                    <div style="flex:1;position:relative;height:20px;border:1px solid #e6eef8;background:#ffffff;">
+                    <div style="flex:1;position:relative;height:22px;border:1px solid #e6eef8;background:#ffffff;">
                         {% for bar in row.bars %}
                         <div style="position:absolute;left:{{ bar.left_percent_full }}%;width:{{ bar.width_percent_full }}%;height:100%;background:{{ bar.color }};border-radius:2px;border:1px solid rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;font-weight:700;overflow:hidden;padding:0 4px;">
                             {{ bar.phase }} {{ bar.duration_text }}
@@ -352,7 +351,6 @@
         <div class="legend-item"><span class="legend-dot" style="background:#D35400;"></span>PVT</div>
     </div>
 </div>
-{% endfor %}
 {% endif %}
 
 <!-- ===================== PAGE 3+: DETAILED RECORDS BY CATEGORY ===================== -->
