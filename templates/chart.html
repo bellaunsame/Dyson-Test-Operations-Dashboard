@@ -80,6 +80,12 @@
                 </select>
             </div>
             <div class="ctrl-group">
+                <label>TEST METHOD</label>
+                <select class="ctrl-select" id="gantt-category-select">
+                    <option value="all">All Test Methods</option>
+                </select>
+            </div>
+            <div class="ctrl-group">
                 <label>CATEGORY</label>
                 <select class="ctrl-select" id="gantt-category-select">
                     <option value="all">All Categories</option>
@@ -102,13 +108,17 @@
             </div>
         </div>
     </div>
-<<<<<<< HEAD
-  
-    
-=======
 
+    <!-- Legend -->
+    <div class="gantt-legend">
+        <span style="font-size:12px;font-weight:600;color:var(--color-text-muted);">PHASES:</span>
+        <div class="legend-item"><div class="legend-dot" style="background:#8E44AD;"></div> Proto</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#2980B9;"></div> DVT</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#27AE60;"></div> EVT</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#D35400;"></div> PVT</div>
+        <div class="legend-item" style="margin-left:8px;"><div style="width:3px;height:14px;background:#ff3b30;border-radius:2px;"></div> Today</div>
+    </div>
 
->>>>>>> 9d0d4cab8fea5b17599c3b8acfc981798affbbd8
     <!-- Gantt Card -->
     <div class="gantt-card">
         <!-- Stats -->

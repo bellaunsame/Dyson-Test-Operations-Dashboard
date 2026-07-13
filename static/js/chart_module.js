@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
     const projectSelect = document.getElementById('gantt-project-select');
     const categorySelect = document.getElementById('gantt-category-select');
+    const testMethodSelect = document.getElementById('gantt-testmethod-select');
     const scaleButtons = document.querySelectorAll('.scale-btn');
     const btnSubmitComment = document.getElementById('btn-submit-comment');
     const pdfComment = document.getElementById('pdf-comment');
@@ -13,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const statRows = document.getElementById('stat-rows');
     const statCats = document.getElementById('stat-cats');
     const statDefects = document.getElementById('stat-defects');
+    const testMethodList = document.getElementById('test-method-list');
     const statsRow = document.querySelector('.gantt-stats-row');
 
     // Chart Instance
@@ -22,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let allProjects = [];
     let currentProjectName = '';
     let currentCategory = 'all';
+    let currentTestMethod = 'all';
     let currentScale = 'week'; // 'day' | 'week' | 'month' | 'year'
     let rawRecords = []; // All records for the selected project
 
@@ -87,14 +90,45 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Category change handler
-        if (categorySelect) {
-            categorySelect.addEventListener('change', (e) => {
-                currentCategory = e.target.value;
-                if (rawRecords.length > 0) {
-                    renderGanttChart();
-                }
-            });
+        categorySelect.addEventListener('change', (e) => {
+
+    currentCategory = e.target.value;
+
+    let records = rawRecords;
+
+    if (currentCategory !== 'all') {
+        records = records.filter(
+            r => r.Category === currentCategory
+        );
+    }
+
+    renderTestMethods(records);
+    renderGanttChart();
+});
         }
+        if (testMethodSelect) {
+    testMethodSelect.addEventListener('change', (e) => {
+
+        currentTestMethod = e.target.value;
+
+        let records = rawRecords;
+
+        if (currentCategory !== 'all') {
+            records = records.filter(
+                r => r.Category === currentCategory
+            );
+        }
+
+        if (currentTestMethod !== 'all') {
+            records = records.filter(
+                r => r['Test Method'] === currentTestMethod
+            );
+        }
+
+        renderTestMethods(records);
+        renderGanttChart();
+    });
+}
 
         // Scale buttons handler
         if (scaleButtons) {
@@ -159,7 +193,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 // Populate categories dropdown dynamically
+                currentCategory = 'all';
+                currentTestMethod = 'all';
+
+                populateTestMethods(rawRecords);
                 populateCategories(rawRecords);
+                renderTestMethods(rawRecords);
 
                 // Show canvas and render chart
                 canvasWrap.style.display = 'block';
@@ -177,6 +216,54 @@ document.addEventListener('DOMContentLoaded', () => {
         records.forEach(r => {
             if (r.Category) categories.add(r.Category);
         });
+
+        function renderTestMethods(records) {
+
+    if (!testMethodList) return;
+
+    const methods = [
+        ...new Set(
+            records.map(r => r['Test Method'])
+        )
+    ];
+
+    testMethodList.innerHTML = '';
+
+    methods.sort().forEach(method => {
+
+        if (!method) return;
+
+        const item = document.createElement('div');
+
+        item.textContent = '• ' + method;
+
+        item.style.padding = '4px 0';
+
+        testMethodList.appendChild(item);
+    });
+}
+    
+    function populateTestMethods(records) {
+    const methods = new Set();
+
+    records.forEach(r => {
+        if (r['Test Method']) {
+            methods.add(r['Test Method']);
+        }
+    });
+
+    testMethodSelect.innerHTML =
+        '<option value="all">All Test Methods</option>';
+
+    Array.from(methods)
+        .sort()
+        .forEach(method => {
+            const option = document.createElement('option');
+            option.value = method;
+            option.textContent = method;
+            testMethodSelect.appendChild(option);
+        });
+}
 
         // Store selected value if possible
         const prevVal = categorySelect.value;
@@ -238,6 +325,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentCategory !== 'all') {
             filteredRecords = rawRecords.filter(r => r.Category === currentCategory);
         }
+        if (currentTestMethod !== 'all') {
+            filteredRecords = filteredRecords.filter( r => r['Test Method'] === currentTestMethod);
+        }
 
         if (filteredRecords.length === 0) {
             canvasWrap.style.display = 'none';
@@ -275,15 +365,15 @@ document.addEventListener('DOMContentLoaded', () => {
             totalDefectsCount += parseInt(r['Defect Qty'] || 0);
 
             // Phase definitions
-            const phases = [
-                { name: 'Proto', weeks: parseInt(r['Proto Weeks'] || 0), days: parseInt(r['Proto Days'] || 0), color: '#8E44AD' },
-                { name: 'DVT', weeks: parseInt(r['DVT Weeks'] || 0), days: parseInt(r['DVT Days'] || 0), color: '#2980B9' },
-                { name: 'EVT', weeks: parseInt(r['EVT Weeks'] || 0), days: parseInt(r['EVT Days'] || 0), color: '#27AE60' },
-                { name: 'PVT', weeks: parseInt(r['PVT Weeks'] || 0), days: parseInt(r['PVT Days'] || 0), color: '#D35400' }
-            ];
+            const phases = [{name: 'Proto', weeks: parseInt(r['Proto Weeks'] || 0),days: parseInt(r['Proto Days'] || 0),color: '#8E44AD'},
+                            {name: 'DVT', weeks: parseInt(r['DVT Weeks'] || 0), days: parseInt(r['DVT Days'] || 0), color: '#2980B9'},
+                            {name: 'EVT', weeks: parseInt(r['EVT Weeks'] || 0), days: parseInt(r['EVT Days'] || 0), color: '#27AE60'},
+                            { name: 'PVT',weeks: parseInt(r['PVT Weeks'] || 0),days: parseInt(r['PVT Days'] || 0),color: '#D35400'}];
 
             phases.forEach(phase => {
-                const durationDays = phase.weeks * 7 + phase.days;
+            const durationDays = phase.weeks * 7 + phase.days;
+
+
                 if (durationDays > 0) {
                     const start = new Date(baseStart.getTime());
                     const end = new Date(baseStart.getTime() + durationDays * 24 * 60 * 60 * 1000);
