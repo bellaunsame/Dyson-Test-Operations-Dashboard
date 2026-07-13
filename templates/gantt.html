@@ -45,6 +45,14 @@
   }
   #gantt-canvas-wrap {
     min-height:360px;
+    position: relative;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #ganttChart {
+    min-width: 900px;
+    width: 100% !important;
   }
   .gantt-stats-row { display:flex; flex-wrap:wrap; gap:14px; margin-bottom:18px; }
   .gantt-stat { min-width:120px; background:#111; border:1px solid #222; border-radius:10px; padding:12px 14px; }
@@ -73,6 +81,37 @@
   .gantt-card {
     box-shadow: 0 12px 30px rgba(0,0,0,0.5);
   }
+  #test-method-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-top: 8px;
+  }
+  .test-method-chip {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #d1d5db;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    user-select: none;
+  }
+  .test-method-chip:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    transform: translateY(-1px);
+  }
+  .test-method-chip.active {
+    background: #0078d4;
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 0 12px rgba(0, 120, 212, 0.45);
+    font-weight: 600;
+  }
 </style>
 {% endblock %}
 
@@ -96,6 +135,12 @@
         <span class="ctrl-label">Category</span>
         <select id="gantt-category-select" class="ctrl-select">
           <option value="all">All Categories</option>
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <span class="ctrl-label">Test Method</span>
+        <select id="gantt-testmethod-select" class="ctrl-select">
+          <option value="all">All Test Methods</option>
         </select>
       </div>
       <div class="ctrl-group">
@@ -135,6 +180,10 @@
         <div class="gantt-stat"><span class="gantt-stat-label">Total Defects</span><span class="gantt-stat-value" id="stat-defects">—</span></div>
       </div>
       <div id="gantt-canvas-wrap" style="display:none;">
+        <div id="test-method-container" style="margin-bottom: 20px; padding: 16px; background: #111; border: 1px solid #222; border-radius: 8px; font-size: 13px;">
+          <h4 style="margin: 0 0 8px; color: #9ca3af; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Active Test Methods</h4>
+          <div id="test-method-list" style="display: flex; flex-wrap: wrap; gap: 8px 16px; color: #e5e7eb;"></div>
+        </div>
         <canvas id="ganttChart"></canvas>
       </div>
     </div>
@@ -142,5 +191,5 @@
   </div>
 </div>
 
-<script src="/static/js/chart_module.js"></script>
+<script src="/static/js/chart_module.js?v=3"></script>
 {% endblock %}

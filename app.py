@@ -1349,7 +1349,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
             ("PVT", int(record.get("PVT Weeks", 0) or 0), int(record.get("PVT Days", 0) or 0))
         ]
 
-        label = f"{record.get('Test Number', 'Unknown')} — {record.get('Test Method', 'Untitled')}"
+        label = f"{record.get('Test Number', 'Unknown')} — {record.get('Test Method', 'Untitled')} #{record.get('id', '')}"
         label = wrap_label(label, width=44)
 
         bars = []
@@ -1475,7 +1475,7 @@ def generate_gantt_chart_image(records, filepath, project_name=None, theme='dark
 
     # Print each row's short method label and duration text
     for y, row in enumerate(rows):
-        short = row['label'].split('\n')[0]
+        short = row['label'].split('\n')[0].split(' #')[0]
         ax_left.text(0.02, y + 0.28, short, va='center', ha='left', fontsize=8, color=fg_sub)
         
         dur_summary = row.get("duration_summary", "")
@@ -1852,7 +1852,7 @@ def generate_email_summary_pdf(filename, project_name=None, comment=None):
 
 
 # --- PDF REPORT GENERATION ---
-def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None, category_filter=None, timeline_type='weeks'):
+def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None):
     """Generates a styled Test Operations PDF report by rendering a Jinja HTML template and using Edge/Chrome headless to print to PDF."""
     if progress_callback:
         progress_callback(10, "Analyzing project data...")
@@ -1868,6 +1868,10 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
     # Apply category filter if specified
     if category_filter and str(category_filter).strip().lower() != 'all':
         records_dict = [r for r in records_dict if str(r.get("Category", "")).strip().lower() == str(category_filter).strip().lower()]
+
+    # Apply test method filter if specified
+    if test_method_filter and str(test_method_filter).strip().lower() != 'all':
+        records_dict = [r for r in records_dict if str(r.get("Test Method", "")).strip().lower() == str(test_method_filter).strip().lower()]
             
     # Calculate global date boundaries
     min_date = None
@@ -2218,7 +2222,7 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
 
 
 # --- CONSOLIDATED PDF REPORT GENERATION ---
-def generate_consolidated_pdf_report(filename, progress_callback=None, category_filter=None, timeline_type='weeks'):
+def generate_consolidated_pdf_report(filename, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None):
     """Generates a consolidated PDF for ALL active projects by rendering each project
     separately and merging the resulting PDFs with PyPDF2."""
     projects = ExcelDataStore.get_projects()
@@ -2245,7 +2249,7 @@ def generate_consolidated_pdf_report(filename, progress_callback=None, category_
                 progress_callback(mapped, msg)
 
         try:
-            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress, category_filter=category_filter, timeline_type=timeline_type)
+            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter)
             per_project_pdfs.append(tmp_pdf.name)
         except Exception as e:
             # Skip failed projects but log the error
@@ -2299,17 +2303,19 @@ def generate_report():
     project_name = request.args.get('project')
     category = request.args.get('category', 'all')
     timeline_type = request.args.get('scale') or request.args.get('timeline') or 'weeks'
+    test_method = request.args.get('test_method') or request.args.get('testmethod') or 'all'
     
     print("================================")
     print("PROJECT =", project_name)
     print("CATEGORY =", category)
     print("TIMELINE TYPE =", timeline_type)
+    print("TEST METHOD =", test_method)
     print("================================")
     
     comment = request.args.get('comment')
     pdf_filename = os.path.join(UPLOAD_FOLDER, "Daily_Operations_Report.pdf")
     try:
-        generate_pdf_report(pdf_filename, project_name, comment, category_filter=category, timeline_type=timeline_type)
+        generate_pdf_report(pdf_filename, project_name, comment, category_filter=category, timeline_type=timeline_type, test_method_filter=test_method)
         download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
         return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     except Exception as e:
@@ -2322,9 +2328,10 @@ def generate_report():
 def generate_consolidated_report():
     category = request.args.get('category', 'all')
     timeline_type = request.args.get('scale') or request.args.get('timeline') or 'weeks'
+    test_method = request.args.get('test_method') or request.args.get('testmethod') or 'all'
     pdf_filename = os.path.join(UPLOAD_FOLDER, "Consolidated_Project_Report.pdf")
     try:
-        generate_consolidated_pdf_report(pdf_filename, category_filter=category, timeline_type=timeline_type)
+        generate_consolidated_pdf_report(pdf_filename, category_filter=category, timeline_type=timeline_type, test_method_filter=test_method)
         return send_file(pdf_filename, as_attachment=True, download_name="Consolidated_Project_Report.pdf", mimetype='application/pdf')
     except Exception as e:
         return jsonify({"error": f"Failed to generate consolidated PDF: {str(e)}"}), 500
@@ -2338,6 +2345,7 @@ def start_consolidated_export():
     data = request.json or {}
     category_filter = data.get('category')
     timeline_type = data.get('scale') or data.get('timeline')
+    test_method_filter = data.get('test_method') or data.get('testmethod')
 
     task_id = str(uuid.uuid4())
     export_tasks[task_id] = {
@@ -2355,7 +2363,7 @@ def start_consolidated_export():
                 export_tasks[task_id]["message"] = msg
             
         try:
-            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type)
+            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter)
             if task_id in export_tasks:
                 export_tasks[task_id]["status"] = "completed"
                 export_tasks[task_id]["progress"] = 100
@@ -2383,6 +2391,7 @@ def start_project_export():
     comment = data.get('comment')
     category_filter = data.get('category')
     timeline_type = data.get('scale') or data.get('timeline')
+    test_method_filter = data.get('test_method') or data.get('testmethod')
     
     task_id = str(uuid.uuid4())
     export_tasks[task_id] = {
@@ -2400,7 +2409,7 @@ def start_project_export():
                 export_tasks[task_id]["message"] = msg
             
         try:
-            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type)
+            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter)
             if task_id in export_tasks:
                 export_tasks[task_id]["status"] = "completed"
                 export_tasks[task_id]["progress"] = 100

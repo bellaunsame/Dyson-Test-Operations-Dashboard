@@ -9,10 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btnPdfDownload.addEventListener('click', () => {
             const proj  = window.OPS && window.OPS.currentProject;
             const cat   = window.OPS && window.OPS.currentCategory;
+            const testMethod = window.OPS && window.OPS.currentTestMethod;
             const scale = window.OPS && window.OPS.currentScale;
             const params = new URLSearchParams();
             if (proj)  params.set('project', proj);
             if (cat && cat !== 'all') params.set('category', cat);
+            if (testMethod && testMethod !== 'all') params.set('test_method', testMethod);
             if (scale) params.set('scale', scale);
             const label = `Project ${proj || 'All'} (${cat !== 'all' ? cat + ' / ' : ''}${scale})`;
             window.showToast(`Generating PDF report for ${label}...`, 'info');
@@ -25,20 +27,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnPdfSidebar) {
         btnPdfSidebar.addEventListener('click', () => {
             const activeProj = getActiveProjectContext();
-            if (!activeProj) {
-                window.showToast('No project selected — exporting full consolidated PDF report...', 'info');
-                const catSel = document.getElementById('gantt-category-select') || document.getElementById('category-select');
-                const activeCategory = catSel ? catSel.value : 'all';
-                const activeScaleBtn = document.querySelector('.scale-btn.active');
-                const activeScale = activeScaleBtn ? activeScaleBtn.getAttribute('data-scale') : 'week';
-                triggerConsolidatedPdfDownload(activeCategory, activeScale);
-                return;
-            }
             const catSel = document.getElementById('gantt-category-select') || document.getElementById('category-select');
             const activeCategory = catSel ? catSel.value : 'all';
+            const testMethodSel = document.getElementById('gantt-testmethod-select');
+            const activeTestMethod = testMethodSel ? testMethodSel.value : 'all';
             const activeScaleBtn = document.querySelector('.scale-btn.active');
             const activeScale = activeScaleBtn ? activeScaleBtn.getAttribute('data-scale') : 'week';
-            triggerPdfDownload(activeProj, activeCategory, activeScale);
+
+            if (!activeProj) {
+                window.showToast('No project selected — exporting full consolidated PDF report...', 'info');
+                triggerConsolidatedPdfDownload(activeCategory, activeScale, activeTestMethod);
+                return;
+            }
+            triggerPdfDownload(activeProj, activeCategory, activeScale, activeTestMethod);
         });
     }
 
@@ -92,7 +93,7 @@ function getActiveProjectContext() {
 }
 
 // Project PDF download with progress modal
-function triggerPdfDownload(projectName, categoryFilter, scaleFilter) {
+function triggerPdfDownload(projectName, categoryFilter, scaleFilter, testMethodFilter) {
     const modal   = document.getElementById('export-progress-modal');
     const bar     = document.getElementById('export-progress-bar');
     const msg     = document.getElementById('export-progress-message');
@@ -145,7 +146,13 @@ function triggerPdfDownload(projectName, categoryFilter, scaleFilter) {
     fetch('/api/export-project/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project: projectName, comment: sessionStorage.getItem('pdf_comment_' + projectName) || '', category: categoryFilter, scale: scaleFilter })
+        body: JSON.stringify({ 
+            project: projectName, 
+            comment: sessionStorage.getItem('pdf_comment_' + projectName) || '', 
+            category: categoryFilter, 
+            scale: scaleFilter,
+            test_method: testMethodFilter
+        })
     })
     .then(r => { if (!r.ok) throw new Error('Failed to start PDF export task'); return r.json(); })
     .then(data => poll(data.task_id))
@@ -157,7 +164,7 @@ function triggerPdfDownload(projectName, categoryFilter, scaleFilter) {
 }
 
 // Consolidated PDF (all projects)
-function triggerConsolidatedPdfDownload(categoryFilter, scaleFilter) {
+function triggerConsolidatedPdfDownload(categoryFilter, scaleFilter, testMethodFilter) {
     const modal = document.getElementById('export-progress-modal');
     const bar     = document.getElementById('export-progress-bar');
     const msg     = document.getElementById('export-progress-message');
@@ -205,7 +212,7 @@ function triggerConsolidatedPdfDownload(categoryFilter, scaleFilter) {
     fetch('/api/export-consolidated/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: categoryFilter, scale: scaleFilter })
+        body: JSON.stringify({ category: categoryFilter, scale: scaleFilter, test_method: testMethodFilter })
     })
         .then(r => { if (!r.ok) throw new Error('Failed to start export'); return r.json(); })
         .then(data => poll(data.task_id))

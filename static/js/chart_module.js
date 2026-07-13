@@ -71,7 +71,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const params = new URLSearchParams({ 
                     project: currentProjectName,
-                    category: currentCategory
+                    category: currentCategory,
+                    test_method: currentTestMethod
                  });
                 if (commentValue) {
                     params.set('comment', commentValue);
@@ -81,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.showToast(`Exporting PDF for ${currentProjectName}...`, 'info');
                 }
                 if (window.triggerPdfDownload) {
-                    window.triggerPdfDownload(currentProjectName, currentCategory, currentScale);
+                    window.triggerPdfDownload(currentProjectName, currentCategory, currentScale, currentTestMethod);
                 } else {
                     const exportUrl = `/generate-report?${params.toString()}`;
                     window.location.assign(exportUrl);
@@ -90,45 +91,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Category change handler
-        categorySelect.addEventListener('change', (e) => {
+        if (categorySelect) {
+            categorySelect.addEventListener('change', (e) => {
+                currentCategory = e.target.value;
 
-    currentCategory = e.target.value;
+                let records = rawRecords;
 
-    let records = rawRecords;
+                if (currentCategory !== 'all') {
+                    records = records.filter(
+                        r => r.Category === currentCategory
+                    );
+                }
 
-    if (currentCategory !== 'all') {
-        records = records.filter(
-            r => r.Category === currentCategory
-        );
-    }
-
-    renderTestMethods(records);
-    renderGanttChart();
-});
+                renderTestMethods(records);
+                renderGanttChart();
+            });
         }
+
         if (testMethodSelect) {
-    testMethodSelect.addEventListener('change', (e) => {
+            testMethodSelect.addEventListener('change', (e) => {
+                currentTestMethod = e.target.value;
+                let records = rawRecords;
 
-        currentTestMethod = e.target.value;
+                if (currentCategory !== 'all') {
+                    records = records.filter(
+                        r => r.Category === currentCategory
+                    );
+                }
 
-        let records = rawRecords;
-
-        if (currentCategory !== 'all') {
-            records = records.filter(
-                r => r.Category === currentCategory
-            );
+                renderTestMethods(records);
+                renderGanttChart();
+            });
         }
-
-        if (currentTestMethod !== 'all') {
-            records = records.filter(
-                r => r['Test Method'] === currentTestMethod
-            );
-        }
-
-        renderTestMethods(records);
-        renderGanttChart();
-    });
-}
 
         // Scale buttons handler
         if (scaleButtons) {
@@ -211,59 +205,116 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    function renderTestMethods(records) {
+        if (!testMethodList) return;
+
+        // Group methods by category
+        const categoryMap = {};
+        records.forEach(r => {
+            const cat = r.Category || 'General';
+            const method = r['Test Method'];
+            if (method) {
+                if (!categoryMap[cat]) {
+                    categoryMap[cat] = new Set();
+                }
+                categoryMap[cat].add(method);
+            }
+        });
+
+        testMethodList.innerHTML = '';
+        testMethodList.style.display = 'block';
+
+        const sortedCategories = Object.keys(categoryMap).sort();
+
+        if (sortedCategories.length === 0) {
+            testMethodList.innerHTML = '<div style="color: #9ca3af; font-style: italic;">No active test methods</div>';
+            return;
+        }
+
+        sortedCategories.forEach(cat => {
+            // Cluster container
+            const cluster = document.createElement('div');
+            cluster.className = 'category-cluster';
+            cluster.style.marginBottom = '16px';
+
+            // Cluster header
+            const header = document.createElement('div');
+            header.className = 'category-cluster-header';
+            header.textContent = cat;
+            header.style.fontSize = '11px';
+            header.style.color = '#888';
+            header.style.fontWeight = '700';
+            header.style.textTransform = 'uppercase';
+            header.style.letterSpacing = '0.05em';
+            header.style.marginBottom = '6px';
+            header.style.borderBottom = '1px solid rgba(255, 255, 255, 0.05)';
+            header.style.paddingBottom = '4px';
+            cluster.appendChild(header);
+
+            // Chips container
+            const chipsWrap = document.createElement('div');
+            chipsWrap.className = 'category-cluster-chips';
+            chipsWrap.style.display = 'flex';
+            chipsWrap.style.flexWrap = 'wrap';
+            chipsWrap.style.gap = '8px 12px';
+
+            // Sort and render chips
+            const methods = Array.from(categoryMap[cat]).sort();
+            methods.forEach(method => {
+                const item = document.createElement('div');
+                item.textContent = method;
+                item.className = 'test-method-chip';
+                if (currentTestMethod === method) {
+                    item.classList.add('active');
+                }
+
+                item.addEventListener('click', () => {
+                    if (testMethodSelect) {
+                        if (currentTestMethod === method) {
+                            testMethodSelect.value = 'all';
+                        } else {
+                            testMethodSelect.value = method;
+                        }
+                        testMethodSelect.dispatchEvent(new Event('change'));
+                    }
+                });
+
+                chipsWrap.appendChild(item);
+            });
+
+            cluster.appendChild(chipsWrap);
+            testMethodList.appendChild(cluster);
+        });
+    }
+
+    function populateTestMethods(records) {
+        if (!testMethodSelect) return;
+
+        const methods = new Set();
+        records.forEach(r => {
+            if (r['Test Method']) {
+                methods.add(r['Test Method']);
+            }
+        });
+
+        testMethodSelect.innerHTML =
+            '<option value="all">All Test Methods</option>';
+
+        Array.from(methods)
+            .sort()
+            .forEach(method => {
+                const option = document.createElement('option');
+                option.value = method;
+                option.textContent = method;
+                testMethodSelect.appendChild(option);
+            });
+    }
+
     function populateCategories(records) {
         const categories = new Set();
         records.forEach(r => {
             if (r.Category) categories.add(r.Category);
         });
-
-        function renderTestMethods(records) {
-
-    if (!testMethodList) return;
-
-    const methods = [
-        ...new Set(
-            records.map(r => r['Test Method'])
-        )
-    ];
-
-    testMethodList.innerHTML = '';
-
-    methods.sort().forEach(method => {
-
-        if (!method) return;
-
-        const item = document.createElement('div');
-
-        item.textContent = '• ' + method;
-
-        item.style.padding = '4px 0';
-
-        testMethodList.appendChild(item);
-    });
-}
-    
-    function populateTestMethods(records) {
-    const methods = new Set();
-
-    records.forEach(r => {
-        if (r['Test Method']) {
-            methods.add(r['Test Method']);
-        }
-    });
-
-    testMethodSelect.innerHTML =
-        '<option value="all">All Test Methods</option>';
-
-    Array.from(methods)
-        .sort()
-        .forEach(method => {
-            const option = document.createElement('option');
-            option.value = method;
-            option.textContent = method;
-            testMethodSelect.appendChild(option);
-        });
-}
 
         // Store selected value if possible
         const prevVal = categorySelect.value;
@@ -355,7 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let totalDefectsCount = 0;
 
         filteredRecords.forEach((r, idx) => {
-            const label = `[${r.Category}] ${r['Test Method']} (${r['Test Number']})`;
+            const label = `[${r.Category}] ${r['Test Method']} (${r['Test Number']}) #${r.id || idx}`;
             let baseStart = parseDateValue(r['Start Date']);
             if (!baseStart) {
                 console.warn('Skipping record with invalid start date:', r);
@@ -521,7 +572,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             padding: 12,
                             callbacks: {
                                 title: (context) => {
-                                    return context[0].raw.y;
+                                    return context[0].raw.y.split(' #')[0];
                                 },
                                 label: (context) => {
                                     const raw = context.raw;
@@ -574,7 +625,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 font: { size: 11, weight: '600' },
                                 callback: function(value) {
                                     const label = this.getLabelForValue(value);
-                                    return wrapLabel(label, 30);
+                                    const cleanLabel = label.split(' #')[0];
+                                    return wrapLabel(cleanLabel, 30);
                                 }
                             }
                         }
