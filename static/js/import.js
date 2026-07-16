@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements - Step 1 (Browse)
     const fileListTbody = document.getElementById('file-list-tbody');
     const btnFileNext   = document.getElementById('btn-file-next');
+    const btnFileScan   = document.getElementById('btn-file-scan');
+    const btnImportGuide = document.getElementById('btn-import-guide');
 
     // DOM Elements - Step 2 (Navigator)
     const panelFileSelect = document.getElementById('panel-file-select');
@@ -59,6 +61,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 openNavigator();
             }
         });
+
+        // Scan & Guide Button Listeners
+        if (btnImportGuide) {
+            btnImportGuide.addEventListener('click', openGuideModal);
+            document.getElementById('btn-close-guide').addEventListener('click', closeGuideModal);
+            document.getElementById('btn-close-guide-x').addEventListener('click', closeGuideModal);
+        }
+        if (btnFileScan) {
+            btnFileScan.addEventListener('click', runFileScan);
+            document.getElementById('btn-scan-cancel').addEventListener('click', closeScanModal);
+            document.getElementById('btn-close-scan-x').addEventListener('click', closeScanModal);
+            document.getElementById('btn-scan-proceed').addEventListener('click', () => {
+                closeScanModal();
+                if (activeSource === 'local') {
+                    openNavigatorFromLocal();
+                } else {
+                    openNavigator();
+                }
+            });
+        }
 
         // Navigator Buttons
         btnNavCancel.addEventListener('click', closeNavigator);
@@ -114,6 +136,8 @@ document.addEventListener('DOMContentLoaded', () => {
         localFileObject = null;
         btnFileNext.disabled = true;
         btnFileNext.title = 'Please select a file from the list above first';
+        btnFileScan.disabled = true;
+        btnFileScan.title = 'Please select a file from the list above first';
         const hint = document.getElementById('file-select-hint');
         const badge = document.getElementById('file-selected-badge');
         if (hint)  hint.style.display = 'flex';
@@ -165,6 +189,8 @@ document.addEventListener('DOMContentLoaded', () => {
             preview.style.display = 'none';
             btnFileNext.disabled = true;
             btnFileNext.title = 'Please select a file from the list above first';
+            btnFileScan.disabled = true;
+            btnFileScan.title = 'Please select a file from the list above first';
             const hint = document.getElementById('file-select-hint');
             const badge = document.getElementById('file-selected-badge');
             if (hint)  hint.style.display = 'flex';
@@ -188,9 +214,11 @@ document.addEventListener('DOMContentLoaded', () => {
             dispSize.textContent = `${(file.size / 1024).toFixed(1)} KB`;
             preview.style.display = 'flex';
 
-            // Enable Open Navigator
+            // Enable Open Navigator and Scan
             btnFileNext.disabled = false;
             btnFileNext.title = `Open Navigator for: ${file.name}`;
+            btnFileScan.disabled = false;
+            btnFileScan.title = `Scan: ${file.name}`;
             const hint = document.getElementById('file-select-hint');
             const badge = document.getElementById('file-selected-badge');
             const badgeName = document.getElementById('file-selected-name');
@@ -228,6 +256,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         excelFileName = f.name;
                         btnFileNext.disabled = false;
                         btnFileNext.title = `Open Navigator for: ${f.name}`;
+                        btnFileScan.disabled = false;
+                        btnFileScan.title = `Scan: ${f.name}`;
 
                         // Show selected badge, hide hint
                         const hint = document.getElementById('file-select-hint');
@@ -751,5 +781,146 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnEditorApply.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Close & Apply';
             });
         }
+    }
+
+    function openGuideModal() {
+        document.getElementById('guide-modal').classList.add('active');
+    }
+
+    function closeGuideModal() {
+        document.getElementById('guide-modal').classList.remove('active');
+    }
+
+    function closeScanModal() {
+        document.getElementById('scan-modal').classList.remove('active');
+    }
+
+    function runFileScan() {
+        if (!selectedFilePath) return;
+
+        btnFileScan.disabled = true;
+        btnFileScan.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scanning...';
+
+        let promise;
+        if (activeSource === 'local') {
+            if (!localFileObject) return;
+            const formData = new FormData();
+            formData.append('file', localFileObject);
+            promise = fetch('/api/projects/scan', { method: 'POST', body: formData });
+        } else {
+            promise = fetch('/api/projects/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_path: selectedFilePath })
+            });
+        }
+
+        promise
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) throw new Error(data.error || 'Scan failed.');
+            renderScanReport(data);
+        })
+        .catch(err => showToast(err.message || 'Validation scan failed.', 'error'))
+        .finally(() => {
+            btnFileScan.disabled = false;
+            btnFileScan.innerHTML = '<i class="fa-solid fa-magnifying-glass-chart" style="margin-right: 6px;"></i>Scan File';
+        });
+    }
+
+    function renderScanReport(data) {
+        const modal = document.getElementById('scan-modal');
+        const banner = document.getElementById('scan-status-banner');
+        const icon = document.getElementById('scan-status-icon');
+        const title = document.getElementById('scan-status-title');
+        const desc = document.getElementById('scan-status-desc');
+        const sheetsContainer = document.getElementById('scan-sheets-container');
+
+        sheetsContainer.innerHTML = '';
+
+        if (data.status === 'ready') {
+            banner.style.background = 'rgba(16, 124, 65, 0.15)';
+            banner.style.border = '1px solid rgba(16, 124, 65, 0.4)';
+            icon.innerHTML = '<i class="fa-solid fa-circle-check" style="color: #107c41;"></i>';
+            title.textContent = 'Ready to Import';
+            title.style.color = '#107c41';
+            desc.textContent = 'This file meets all requirements. No issues found.';
+        } else if (data.status === 'warning') {
+            banner.style.background = 'rgba(243, 156, 18, 0.15)';
+            banner.style.border = '1px solid rgba(243, 156, 18, 0.4)';
+            icon.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color: #f39c12;"></i>';
+            title.textContent = 'Warnings Found';
+            title.style.color = '#f39c12';
+            desc.textContent = 'The file can be imported, but some recommended columns are missing or data warnings exist.';
+        } else {
+            banner.style.background = 'rgba(231, 76, 60, 0.15)';
+            banner.style.border = '1px solid rgba(231, 76, 60, 0.4)';
+            icon.innerHTML = '<i class="fa-solid fa-circle-xmark" style="color: #e74c3c;"></i>';
+            title.textContent = 'Critical Errors';
+            title.style.color = '#e74c3c';
+            desc.textContent = 'Critical columns or data errors were found. Importing this file may cause functionality issues.';
+        }
+
+        Object.entries(data.sheets).forEach(([sheetName, report]) => {
+            const card = document.createElement('div');
+            card.style.background = 'rgba(255,255,255,0.02)';
+            card.style.border = '1px solid var(--color-border)';
+            card.style.borderRadius = '6px';
+            card.style.padding = '12px 16px';
+
+            let statusBadge = '';
+            if (report.status === 'ready') {
+                statusBadge = '<span style="color: #107c41; font-weight: 700; font-size: 11px; text-transform: uppercase;">OK</span>';
+            } else if (report.status === 'warning') {
+                statusBadge = '<span style="color: #f39c12; font-weight: 700; font-size: 11px; text-transform: uppercase;">Warning</span>';
+            } else {
+                statusBadge = '<span style="color: #e74c3c; font-weight: 700; font-size: 11px; text-transform: uppercase;">Error</span>';
+            }
+
+            let itemsHtml = '';
+            if (report.errors && report.errors.length > 0) {
+                itemsHtml += '<div style="margin-top: 8px;">';
+                report.errors.forEach(err => {
+                    itemsHtml += `<div style="color: #e74c3c; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;"><i class="fa-solid fa-circle-xmark" style="font-size: 11px;"></i> ${err}</div>`;
+                });
+                itemsHtml += '</div>';
+            }
+            if (report.warnings && report.warnings.length > 0) {
+                itemsHtml += '<div style="margin-top: 8px;">';
+                report.warnings.forEach(warn => {
+                    itemsHtml += `<div style="color: #f39c12; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;"><i class="fa-solid fa-triangle-exclamation" style="font-size: 11px;"></i> ${warn}</div>`;
+                });
+                itemsHtml += '</div>';
+            }
+
+            let mappingsHtml = '';
+            if (report.mappings && Object.keys(report.mappings).length > 0) {
+                mappingsHtml += `
+                    <div style="margin-top: 10px; font-size: 11px; border-top: 1px solid rgba(255,255,255,0.03); padding-top: 8px;">
+                        <span style="color: var(--color-text-muted); font-weight: 600;">Mapped Columns:</span>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 4px;">
+                `;
+                Object.entries(report.mappings).forEach(([field, colName]) => {
+                    const cleanField = field.replace('_', ' ');
+                    mappingsHtml += `<span style="background: rgba(255,255,255,0.04); padding: 2px 6px; border-radius: 4px;">${cleanField}: <strong>${colName}</strong></span>`;
+                });
+                mappingsHtml += '</div></div>';
+            }
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-weight: 700; font-size: 14px;">
+                        <i class="fa-solid fa-sheet-plastic" style="margin-right: 6px; color: var(--color-primary);"></i> Sheet: "${sheetName}"
+                        <span style="font-weight: 400; font-size: 12px; color: var(--color-text-muted); margin-left: 8px;">(${report.row_count} rows found)</span>
+                    </div>
+                    <div>${statusBadge}</div>
+                </div>
+                ${itemsHtml}
+                ${mappingsHtml}
+            `;
+            sheetsContainer.appendChild(card);
+        });
+
+        modal.classList.add('active');
     }
 });

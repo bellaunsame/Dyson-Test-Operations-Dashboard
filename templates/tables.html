@@ -286,6 +286,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 <!-- Action Buttons -->
                 <div style="display: flex; gap: 8px; border-top: 1px solid var(--color-border); padding-top: 12px;">
+                    <a class="btn btn-primary card-action-btn" href="/chart?project=${encodeURIComponent(p.name)}" style="flex: 1.5; padding: 6px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px; text-decoration: none; font-weight: 600; color: #fff; background: var(--color-primary); border: none;">
+                        <i class="fa-solid fa-square-poll-horizontal"></i> View Gantt
+                    </a>
                     <button class="btn btn-secondary card-action-btn btn-archive" data-name="${p.name}" style="flex: 1; padding: 6px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;">
                         <i class="fa-solid fa-box-archive"></i> ${p.status === 'Active' ? 'Archive' : 'Activate'}
                     </button>

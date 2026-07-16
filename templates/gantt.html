@@ -144,6 +144,10 @@
         </select>
       </div>
       <div class="ctrl-group">
+        <span class="ctrl-label">Custom Start Date</span>
+        <input type="date" id="gantt-start-date" class="ctrl-select" style="min-width: 140px; color: #fff;">
+      </div>
+      <div class="ctrl-group">
         <span class="ctrl-label">Scale</span>
         <div class="scale-group">
           <button type="button" class="scale-btn active" data-scale="week">Week</button>
@@ -174,10 +178,15 @@
       <div id="gantt-loading" class="gantt-instructions" style="display:none;text-align:center;padding:48px;">
         <h3 style="margin:0 0 12px;">Loading chart...</h3>
       </div>
-      <div class="gantt-stats-row" style="display:none;">
-        <div class="gantt-stat"><span class="gantt-stat-label">Test Rows</span><span class="gantt-stat-value" id="stat-rows">—</span></div>
-        <div class="gantt-stat"><span class="gantt-stat-label">Categories</span><span class="gantt-stat-value" id="stat-cats">—</span></div>
-        <div class="gantt-stat"><span class="gantt-stat-label">Total Defects</span><span class="gantt-stat-value" id="stat-defects">—</span></div>
+      <div class="gantt-stats-row" style="display:none; align-items: center; justify-content: space-between;">
+        <div style="display: flex; gap: 14px; flex-wrap: wrap;">
+          <div class="gantt-stat"><span class="gantt-stat-label">Test Rows</span><span class="gantt-stat-value" id="stat-rows">--</span></div>
+          <div class="gantt-stat"><span class="gantt-stat-label">Categories</span><span class="gantt-stat-value" id="stat-cats">--</span></div>
+          <div class="gantt-stat"><span class="gantt-stat-label">Total Defects</span><span class="gantt-stat-value" id="stat-defects">--</span></div>
+        </div>
+        <button id="btn-scroll-to-gantt" class="btn btn-accent" style="padding: 10px 20px; font-size: 13px; display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer;" type="button">
+          <i class="fa-solid fa-arrow-down-long"></i> Scroll to Gantt Chart
+        </button>
       </div>
       <div id="gantt-canvas-wrap" style="display:none;">
         <div id="test-method-container" style="margin-bottom: 20px; padding: 16px; background: #111; border: 1px solid #222; border-radius: 8px; font-size: 13px;">
@@ -185,11 +194,18 @@
           <div id="test-method-list" style="display: flex; flex-wrap: wrap; gap: 8px 16px; color: #e5e7eb;"></div>
         </div>
         <canvas id="ganttChart"></canvas>
+        <div class="gantt-legend" style="display: flex; align-items: center; justify-content: center; gap: 20px; margin-top: 15px; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--color-border); border-radius: 6px;">
+          <span style="font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Legend:</span>
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--color-text);"><span style="width: 12px; height: 12px; border-radius: 3px; background: #8E44AD; display: inline-block;"></span>Proto</div>
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--color-text);"><span style="width: 12px; height: 12px; border-radius: 3px; background: #2980B9; display: inline-block;"></span>DVT</div>
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--color-text);"><span style="width: 12px; height: 12px; border-radius: 3px; background: #27AE60; display: inline-block;"></span>EVT</div>
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--color-text);"><span style="width: 12px; height: 12px; border-radius: 3px; background: #D35400; display: inline-block;"></span>PVT</div>
+        </div>
       </div>
     </div>
   </div>
   </div>
 </div>
 
-<script src="/static/js/chart_module.js?v=3"></script>
+<script src="/static/js/chart_module.js?v=7"></script>
 {% endblock %}

@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentProjectName = '';
     let currentCategory = 'all';
     let currentTestMethod = 'all';
+    let selectedTestMethods = new Set();
+    let customStartDate = '';
     let currentScale = 'week'; // 'day' | 'week' | 'month' | 'year'
     let rawRecords = []; // All records for the selected project
 
@@ -69,20 +71,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 const commentValue = pdfComment ? (pdfComment.value || '').trim() : '';
                 sessionStorage.setItem('pdf_comment_' + currentProjectName, commentValue);
 
+                const methodParam = selectedTestMethods.size > 0 ? Array.from(selectedTestMethods).join(',') : currentTestMethod;
                 const params = new URLSearchParams({ 
                     project: currentProjectName,
                     category: currentCategory,
-                    test_method: currentTestMethod
+                    test_method: methodParam,
+                    scale: currentScale
                  });
                 if (commentValue) {
                     params.set('comment', commentValue);
+                }
+                if (customStartDate) {
+                    params.set('custom_start_date', customStartDate);
                 }
 
                 if (window.showToast) {
                     window.showToast(`Exporting PDF for ${currentProjectName}...`, 'info');
                 }
                 if (window.triggerPdfDownload) {
-                    window.triggerPdfDownload(currentProjectName, currentCategory, currentScale, currentTestMethod);
+                    window.triggerPdfDownload(currentProjectName, currentCategory, currentScale, methodParam, customStartDate);
                 } else {
                     const exportUrl = `/generate-report?${params.toString()}`;
                     window.location.assign(exportUrl);
@@ -111,6 +118,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (testMethodSelect) {
             testMethodSelect.addEventListener('change', (e) => {
                 currentTestMethod = e.target.value;
+                selectedTestMethods.clear();
+                if (currentTestMethod !== 'all' && currentTestMethod !== 'multiple') {
+                    selectedTestMethods.add(currentTestMethod);
+                }
                 let records = rawRecords;
 
                 if (currentCategory !== 'all') {
@@ -137,6 +148,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             });
         }
+
+        // Custom start date change handler
+        const ganttStartDateInput = document.getElementById('gantt-start-date');
+        if (ganttStartDateInput) {
+            ganttStartDateInput.addEventListener('change', (e) => {
+                customStartDate = e.target.value;
+                if (rawRecords.length > 0) {
+                    renderGanttChart();
+                }
+            });
+        }
+
+        // Scroll to Gantt Chart handler
+        const btnScrollToGantt = document.getElementById('btn-scroll-to-gantt');
+        if (btnScrollToGantt) {
+            btnScrollToGantt.addEventListener('click', () => {
+                const chartCanvas = document.getElementById('ganttChart');
+                if (chartCanvas) {
+                    chartCanvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        }
     }
 
     // Fetch active projects to populate the select dropdown
@@ -145,7 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(res => res.json())
             .then(projects => {
                 allProjects = projects;
-                projectSelect.innerHTML = '<option value="">— Select a project —</option>';
+                projectSelect.innerHTML = '<option value="">-- Select a project --</option>';
                 if (projects.length === 0) {
                     projectSelect.innerHTML = '<option value="">No active projects found</option>';
                     return;
@@ -156,9 +189,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     option.textContent = p.name;
                     projectSelect.appendChild(option);
                 });
-                // Auto-select the first project if none is chosen yet
+                // Auto-select based on URL parameter or fallback to first project
                 if (!currentProjectName && projects.length > 0) {
-                    projectSelect.value = projects[0].name;
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const urlProj = urlParams.get('project');
+                    if (urlProj && projects.some(p => p.name === urlProj)) {
+                        projectSelect.value = urlProj;
+                        currentProjectName = urlProj;
+                    } else {
+                        projectSelect.value = projects[0].name;
+                        currentProjectName = projects[0].name;
+                    }
                     projectSelect.dispatchEvent(new Event('change'));
                 }
             })
@@ -189,6 +230,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Populate categories dropdown dynamically
                 currentCategory = 'all';
                 currentTestMethod = 'all';
+                selectedTestMethods.clear();
+                customStartDate = '';
+                const ganttStartDateInput = document.getElementById('gantt-start-date');
+                if (ganttStartDateInput) ganttStartDateInput.value = '';
 
                 populateTestMethods(rawRecords);
                 populateCategories(rawRecords);
@@ -264,19 +309,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 const item = document.createElement('div');
                 item.textContent = method;
                 item.className = 'test-method-chip';
-                if (currentTestMethod === method) {
+                if (selectedTestMethods.has(method)) {
                     item.classList.add('active');
                 }
 
                 item.addEventListener('click', () => {
-                    if (testMethodSelect) {
-                        if (currentTestMethod === method) {
-                            testMethodSelect.value = 'all';
-                        } else {
-                            testMethodSelect.value = method;
-                        }
-                        testMethodSelect.dispatchEvent(new Event('change'));
+                    if (selectedTestMethods.has(method)) {
+                        selectedTestMethods.delete(method);
+                    } else {
+                        selectedTestMethods.add(method);
                     }
+
+                    if (selectedTestMethods.size === 0) {
+                        currentTestMethod = 'all';
+                        if (testMethodSelect) testMethodSelect.value = 'all';
+                    } else if (selectedTestMethods.size === 1) {
+                        currentTestMethod = Array.from(selectedTestMethods)[0];
+                        if (testMethodSelect) testMethodSelect.value = currentTestMethod;
+                    } else {
+                        currentTestMethod = 'multiple';
+                        if (testMethodSelect) {
+                            let multOpt = testMethodSelect.querySelector('option[value="multiple"]');
+                            if (!multOpt) {
+                                multOpt = document.createElement('option');
+                                multOpt.value = 'multiple';
+                                multOpt.textContent = 'Multiple Selected';
+                                testMethodSelect.appendChild(multOpt);
+                            }
+                            testMethodSelect.value = 'multiple';
+                        }
+                    }
+
+                    const chips = testMethodList.querySelectorAll('.test-method-chip');
+                    chips.forEach(chip => {
+                        const name = chip.textContent;
+                        if (selectedTestMethods.has(name)) {
+                            chip.classList.add('active');
+                        } else {
+                            chip.classList.remove('active');
+                        }
+                    });
+
+                    renderGanttChart();
                 });
 
                 chipsWrap.appendChild(item);
@@ -354,9 +428,9 @@ document.addEventListener('DOMContentLoaded', () => {
         emptyState.querySelector('h3').textContent = title;
         emptyState.querySelector('p').textContent = text;
 
-        statRows.textContent = '—';
-        statCats.textContent = '—';
-        statDefects.textContent = '—';
+        statRows.textContent = '--';
+        statCats.textContent = '--';
+        statDefects.textContent = '--';
 
         if (ganttChartInstance) {
             ganttChartInstance.destroy();
@@ -371,13 +445,13 @@ document.addEventListener('DOMContentLoaded', () => {
             clearTimeout(renderTimeout);
         }
 
-        // 1. Filter records by Category
+        // 1. Filter records by Category and selected Test Methods
         let filteredRecords = rawRecords;
         if (currentCategory !== 'all') {
             filteredRecords = rawRecords.filter(r => r.Category === currentCategory);
         }
-        if (currentTestMethod !== 'all') {
-            filteredRecords = filteredRecords.filter( r => r['Test Method'] === currentTestMethod);
+        if (selectedTestMethods.size > 0) {
+            filteredRecords = filteredRecords.filter(r => selectedTestMethods.has(r['Test Method']));
         }
 
         if (filteredRecords.length === 0) {
@@ -407,7 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         filteredRecords.forEach((r, idx) => {
             const label = `[${r.Category}] ${r['Test Method']} (${r['Test Number']}) #${r.id || idx}`;
-            let baseStart = parseDateValue(r['Start Date']);
+            let baseStart = customStartDate ? new Date(customStartDate + 'T00:00:00') : parseDateValue(r['Start Date']);
             if (!baseStart) {
                 console.warn('Skipping record with invalid start date:', r);
                 return;
@@ -553,13 +627,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         legend: { display: false },
                         title: {
                             display: true,
-                            text: `Project ${currentProjectName} — Gantt Timeline`,
+                            text: `Project ${currentProjectName} - Gantt Timeline`,
                             color: '#ffffff',
                             font: { size: 16, weight: '700' }
                         },
                         subtitle: {
                             display: true,
-                            text: '🟪 Proto    🟦 DVT    🟩 EVT    🟧 PVT',
+                            text: 'Proto | DVT | EVT | PVT',
                             color: '#d1d5db',
                             font: { size: 12, weight: '600' }
                         },

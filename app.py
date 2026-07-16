@@ -264,6 +264,64 @@ FUZZY_RULES = {
     "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt1', 'pvt1_qty', 'pvt_qty'],
 }
 
+def get_project_milestones(project_name):
+    """Searches the uploads folder for Excel files with Project Milestone sheet and filters for project_name."""
+    if not project_name:
+        return []
+    milestones = []
+    excel_files = [EXCEL_PATH]
+    if os.path.exists(UPLOAD_FOLDER):
+        for f in os.listdir(UPLOAD_FOLDER):
+            if f.lower().endswith(('.xlsx', '.xls')):
+                full_path = os.path.join(UPLOAD_FOLDER, f)
+                if full_path not in excel_files:
+                    excel_files.append(full_path)
+    for path in excel_files:
+        if not os.path.exists(path):
+            continue
+        try:
+            with pd.ExcelFile(path) as xl:
+                sheet_names = xl.sheet_names
+                milestone_sheet = None
+                for s in sheet_names:
+                    if s.lower().strip() == 'project milestone':
+                        milestone_sheet = s
+                        break
+                if milestone_sheet:
+                    df = xl.parse(milestone_sheet)
+                    df.columns = [str(c).strip() for c in df.columns]
+                    if 'Project' in df.columns and 'Milestone' in df.columns:
+                        df['Project_str'] = df['Project'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                        proj_str = str(project_name).strip().replace('.0', '')
+                        proj_df = df[df['Project_str'] == proj_str]
+                        for _, row in proj_df.iterrows():
+                            ms_name = str(row['Milestone']).strip()
+                            if pd.isna(row['Milestone']) or ms_name == 'nan':
+                                continue
+                            week_val = row.get('Cutoff Week')
+                            year_val = row.get('Cutoff Year')
+                            if pd.isna(week_val) or pd.isna(year_val):
+                                continue
+                            try:
+                                week_num = int(float(week_val))
+                                year_num = int(float(year_val))
+                                date_obj = datetime.datetime.strptime(f"{year_num}-W{week_num}-1", "%G-W%V-%u")
+                                milestones.append({
+                                    "name": ms_name,
+                                    "week": week_num,
+                                    "year": year_num,
+                                    "date": date_obj,
+                                    "date_str": date_obj.strftime("%Y-%m-%d")
+                                })
+                            except Exception:
+                                pass
+                        if milestones:
+                            milestones.sort(key=lambda x: x['date'])
+                            return milestones
+        except Exception as e:
+            print(f"Error reading milestones: {e}")
+    return []
+
 class ExcelDataStore:
     @staticmethod
     def get_projects():
@@ -913,6 +971,161 @@ def sync_sharepoint():
         })
     except Exception as e:
         return jsonify({"success": False, "error": f"Failed to sync SharePoint Excel: {str(e)}"}), 500
+
+@app.route('/api/projects/scan', methods=['POST'])
+@login_required
+def api_projects_scan():
+    # Scans an Excel file to validate column mappings and data integrity.
+    file_bytes = None
+    filename = "unknown.xlsx"
+
+    if 'file' in request.files:
+        uploaded_file = request.files['file']
+        if uploaded_file.filename != '':
+            filename = uploaded_file.filename
+            file_bytes = uploaded_file.read()
+    else:
+        # Fallback to SharePoint path scan.
+        data = request.json or request.form
+        if data and 'file_path' in data:
+            file_path = data['file_path']
+            filename = os.path.basename(file_path)
+            try:
+                file_content = SharePointService.download_file(file_path)
+                file_bytes = file_content
+            except Exception as e:
+                return jsonify({"success": False, "error": f"Failed to download SharePoint file: {str(e)}"}), 500
+
+    if not file_bytes:
+        return jsonify({"success": False, "error": "No file or file path provided"}), 400
+
+    try:
+        import io
+        sheets_report = {}
+        overall_status = "ready"
+        warnings_count = 0
+        errors_count = 0
+
+        with pd.ExcelFile(io.BytesIO(file_bytes)) as xl:
+            sheets = xl.sheet_names
+            valid_sheets = [s for s in sheets if s.lower().strip() != 'master data']
+            if not valid_sheets:
+                return jsonify({
+                    "success": True,
+                    "status": "error",
+                    "error_message": "The Excel file contains no valid sheets.",
+                    "sheets": {}
+                })
+
+            for sheet in valid_sheets:
+                try:
+                    df = xl.parse(sheet)
+                except Exception as e:
+                    sheets_report[sheet] = {
+                        "row_count": 0,
+                        "status": "error",
+                        "errors": [f"Failed to parse sheet: {str(e)}"],
+                        "warnings": [],
+                        "mappings": {}
+                    }
+                    errors_count += 1
+                    continue
+
+                df = clean_dataframe_headers(df)
+                mapping = {}
+                for field, rules in FUZZY_RULES.items():
+                    for col in df.columns:
+                        col_lower = str(col).lower().strip()
+                        if field == 'start_date' and any(x in col_lower for x in ['week', 'day', 'qty']):
+                            if 'start date' not in col_lower and col_lower != 'start' and col_lower != 'date':
+                                continue
+                        if any(r == col_lower or r in col_lower for r in rules):
+                            mapping[field] = col
+                            break
+
+                errors = []
+                warnings = []
+
+                critical_fields = ["category", "test_method", "test_number"]
+                for field in critical_fields:
+                    if field not in mapping:
+                        errors.append(f"Missing critical column matching: {field.replace('_', ' ').title()}")
+
+                recommended_fields = ["start_date", "defect_qty", "comments"]
+                for field in recommended_fields:
+                    if field not in mapping:
+                        warnings.append(f"Missing recommended column matching: {field.replace('_', ' ').title()}")
+
+                phases = ["proto", "dvt", "evt", "pvt"]
+                for phase in phases:
+                    for suffix in ["weeks", "days", "qty"]:
+                        field = f"{phase}_{suffix}"
+                        if field not in mapping:
+                            warnings.append(f"Missing phase column matching: {field.replace('_', ' ').title()}")
+
+                row_count = len(df)
+                if row_count == 0:
+                    errors.append("Sheet has no data rows.")
+                else:
+                    cat_col = mapping.get("category")
+                    method_col = mapping.get("test_method")
+
+                    empty_categories = 0
+                    empty_methods = 0
+                    invalid_dates = 0
+
+                    for idx, row in df.head(100).iterrows():
+                        if cat_col and (pd.isna(row[cat_col]) or str(row[cat_col]).strip() == ""):
+                            empty_categories += 1
+                        if method_col and (pd.isna(row[method_col]) or str(row[method_col]).strip() == ""):
+                            empty_methods += 1
+
+                        if "start_date" in mapping:
+                            date_val = row[mapping["start_date"]]
+                            if not pd.isna(date_val):
+                                try:
+                                    if not hasattr(date_val, 'strftime'):
+                                        pd.to_datetime(date_val)
+                                except Exception:
+                                    invalid_dates += 1
+
+                    if empty_categories > 0:
+                        warnings.append(f"Found {empty_categories} rows with empty category.")
+                    if empty_methods > 0:
+                        warnings.append(f"Found {empty_methods} rows with empty test method.")
+                    if invalid_dates > 0:
+                        warnings.append(f"Found {invalid_dates} rows with invalid start date.")
+
+                sheet_status = "ready"
+                if errors:
+                    sheet_status = "error"
+                    errors_count += len(errors)
+                elif warnings:
+                    sheet_status = "warning"
+                    warnings_count += len(warnings)
+
+                sheets_report[sheet] = {
+                    "row_count": row_count,
+                    "status": sheet_status,
+                    "errors": errors,
+                    "warnings": warnings,
+                    "mappings": {k: str(v) for k, v in mapping.items()}
+                }
+
+        if errors_count > 0:
+            overall_status = "error"
+        elif warnings_count > 0:
+            overall_status = "warning"
+
+        return jsonify({
+            "success": True,
+            "status": overall_status,
+            "filename": filename,
+            "sheets": sheets_report,
+            "total_sheets": len(valid_sheets)
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Failed to scan file: {str(e)}"}), 500
 
 @app.route('/api/local/preview-all', methods=['POST'])
 @login_required
@@ -1852,7 +2065,7 @@ def generate_email_summary_pdf(filename, project_name=None, comment=None):
 
 
 # --- PDF REPORT GENERATION ---
-def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None):
+def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None, custom_start_date=None):
     """Generates a styled Test Operations PDF report by rendering a Jinja HTML template and using Edge/Chrome headless to print to PDF."""
     if progress_callback:
         progress_callback(10, "Analyzing project data...")
@@ -1864,20 +2077,35 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         records_dict = []
         for p in ExcelDataStore.get_projects():
             records_dict.extend(ExcelDataStore.get_project_rows(p["name"]))
-            
+
     # Apply category filter if specified
     if category_filter and str(category_filter).strip().lower() != 'all':
         records_dict = [r for r in records_dict if str(r.get("Category", "")).strip().lower() == str(category_filter).strip().lower()]
 
-    # Apply test method filter if specified
+    # Apply test method filter if specified (supports multiple comma-separated methods)
     if test_method_filter and str(test_method_filter).strip().lower() != 'all':
-        records_dict = [r for r in records_dict if str(r.get("Test Method", "")).strip().lower() == str(test_method_filter).strip().lower()]
-            
+        methods_list = [m.strip().lower() for m in str(test_method_filter).split(",") if m.strip()]
+        if methods_list:
+            records_dict = [r for r in records_dict if str(r.get("Test Method", "")).strip().lower() in methods_list]
+
+    # Parse custom baseline start date if provided
+    custom_start_dt = None
+    if custom_start_date:
+        try:
+            custom_start_dt = parse_date(custom_start_date)
+        except Exception:
+            pass
+
+    # Fetch milestones for this project
+    milestones = []
+    if project_name:
+        milestones = get_project_milestones(project_name)
+
     # Calculate global date boundaries
     min_date = None
     max_date = None
     for r in records_dict:
-        start_date = parse_date(r.get("Start Date"))
+        start_date = custom_start_dt if custom_start_dt else parse_date(r.get("Start Date"))
         if not start_date:
             continue
         
@@ -1970,6 +2198,11 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         max_date = datetime.datetime.combine(max_d, datetime.time.min)
 
         total_span_days = max((max_date - min_date).days, 1)
+        # Calculate milestone left percentage position on timeline
+        for ms in milestones:
+            days_diff = (ms["date"] - min_date).days
+            ms["left_percent"] = (days_diff / float(total_span_days)) * 100.0
+
         # full timeline in weeks for header numbering
         total_weeks = int((total_span_days + 6) // 7)
 
@@ -2150,6 +2383,7 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         "category_summary": category_summary,
         "comment": comment,
         "timeline_chunks": timeline_chunks,
+        "milestones": milestones,
         "records_by_cat": records_by_cat,
         "rejected_records": rejected_records,
         "rej_by_cat": rej_by_cat,
@@ -2222,7 +2456,7 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
 
 
 # --- CONSOLIDATED PDF REPORT GENERATION ---
-def generate_consolidated_pdf_report(filename, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None):
+def generate_consolidated_pdf_report(filename, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None, custom_start_date=None):
     """Generates a consolidated PDF for ALL active projects by rendering each project
     separately and merging the resulting PDFs with PyPDF2."""
     projects = ExcelDataStore.get_projects()
@@ -2249,7 +2483,7 @@ def generate_consolidated_pdf_report(filename, progress_callback=None, category_
                 progress_callback(mapped, msg)
 
         try:
-            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter)
+            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date)
             per_project_pdfs.append(tmp_pdf.name)
         except Exception as e:
             # Skip failed projects but log the error
@@ -2346,6 +2580,7 @@ def start_consolidated_export():
     category_filter = data.get('category')
     timeline_type = data.get('scale') or data.get('timeline')
     test_method_filter = data.get('test_method') or data.get('testmethod')
+    custom_start_date = data.get('custom_start_date')
 
     task_id = str(uuid.uuid4())
     export_tasks[task_id] = {
@@ -2363,7 +2598,7 @@ def start_consolidated_export():
                 export_tasks[task_id]["message"] = msg
             
         try:
-            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter)
+            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date)
             if task_id in export_tasks:
                 export_tasks[task_id]["status"] = "completed"
                 export_tasks[task_id]["progress"] = 100
@@ -2392,6 +2627,7 @@ def start_project_export():
     category_filter = data.get('category')
     timeline_type = data.get('scale') or data.get('timeline')
     test_method_filter = data.get('test_method') or data.get('testmethod')
+    custom_start_date = data.get('custom_start_date')
     
     task_id = str(uuid.uuid4())
     export_tasks[task_id] = {
@@ -2409,7 +2645,7 @@ def start_project_export():
                 export_tasks[task_id]["message"] = msg
             
         try:
-            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter)
+            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date)
             if task_id in export_tasks:
                 export_tasks[task_id]["status"] = "completed"
                 export_tasks[task_id]["progress"] = 100

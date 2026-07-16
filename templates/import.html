@@ -475,11 +475,16 @@
     
     <!-- STEP 1: SHAREPOINT FILE BROWSER -->
     <div class="file-select-panel active" id="panel-file-select">
-        <header class="page-header" style="margin-bottom: 25px;">
-            <h1 style="font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px;">
-                <i class="fa-solid fa-cloud-arrow-down" style="color: var(--color-primary);"></i> SharePoint Excel Data Extractor
-            </h1>
-            <p style="font-size: 13px; color: var(--color-text-muted); margin-top: 4px;">Browse and select an Excel spreadsheet from your SharePoint document library to load into the Power BI Navigator.</p>
+        <header class="page-header" style="margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; gap: 15px; flex-wrap: wrap;">
+            <div>
+                <h1 style="font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; margin: 0;">
+                    <i class="fa-solid fa-cloud-arrow-down" style="color: var(--color-primary);"></i> SharePoint Excel Data Extractor
+                </h1>
+                <p style="font-size: 13px; color: var(--color-text-muted); margin: 4px 0 0 0;">Browse and select an Excel spreadsheet from your SharePoint document library to load into the Power BI Navigator.</p>
+            </div>
+            <button class="btn btn-secondary" id="btn-import-guide" style="padding: 8px 16px; font-size: 13px; display: flex; align-items: center; gap: 8px;" type="button">
+                <i class="fa-solid fa-circle-question" style="color: var(--color-primary);"></i> Requirements Guide
+            </button>
         </header>
 
         <div class="grid-card" style="padding: 20px;">
@@ -563,10 +568,16 @@
                     <i class="fa-solid fa-circle-check"></i>
                     <span id="file-selected-name"></span>
                 </span>
-                <button class="btn btn-primary" id="btn-file-next" disabled
-                    title="Please select a file from the list above first">
-                    <i class="fa-solid fa-table-columns" style="margin-right: 6px;"></i>Open Navigator <i class="fa-solid fa-arrow-right"></i>
-                </button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-secondary" id="btn-file-scan" disabled
+                        title="Please select a file from the list above first" type="button">
+                        <i class="fa-solid fa-magnifying-glass-chart" style="margin-right: 6px;"></i>Scan File
+                    </button>
+                    <button class="btn btn-primary" id="btn-file-next" disabled
+                        title="Please select a file from the list above first" type="button">
+                        <i class="fa-solid fa-table-columns" style="margin-right: 6px;"></i>Open Navigator <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -700,6 +711,109 @@
     </div>
     <div class="context-menu-item" style="color: var(--color-text-muted); cursor: not-allowed;">
         <i class="fa-solid fa-clone"></i> Duplicate Column
+    </div>
+</div>
+
+<!-- Excel Requirements Guide Modal -->
+<div class="modal-backdrop" id="guide-modal">
+    <div class="modal-card" style="max-width: 700px; max-height: 85vh; display: flex; flex-direction: column;">
+        <div class="modal-header">
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-circle-question" style="color: var(--color-primary);"></i> Excel Requirements Guide
+            </h2>
+            <button class="modal-close-btn" id="btn-close-guide-x" type="button" style="background: none; border: none; cursor: pointer;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body" style="padding: 24px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: var(--color-text-main);">
+            <p style="margin-top: 0;">To ensure the Test Ops Dashboard can load and display your project timelines, your Excel file must follow the standard schema. Below are the required and optional columns:</p>
+            
+            <h4 style="margin: 16px 0 8px; color: var(--color-primary); font-size: 14px;">1. File & Sheet Structure</h4>
+            <ul style="padding-left: 20px; margin: 0 0 16px;">
+                <li>Each tab/sheet in the workbook represents an active project (e.g. <strong>873</strong>, <strong>893</strong>).</li>
+                <li>The sheet named <strong>Master Data</strong> (case insensitive) is ignored by the system.</li>
+            </ul>
+
+            <h4 style="margin: 16px 0 8px; color: var(--color-primary); font-size: 14px;">2. Required Columns (Critical)</h4>
+            <p style="margin: 0 0 8px;">The system maps your columns using fuzzy naming rules. Ensure your headers match or are similar to the following:</p>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; border: 1px solid var(--color-border);">
+                <thead>
+                    <tr style="background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--color-border); text-align: left;">
+                        <th style="padding: 8px 12px; font-weight: 600;">System Field</th>
+                        <th style="padding: 8px 12px; font-weight: 600;">Accepted Column Headers (Fuzzy Matches)</th>
+                        <th style="padding: 8px 12px; font-weight: 600;">Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="border-bottom: 1px solid var(--color-border);">
+                        <td style="padding: 8px 12px; font-weight: 600;">Category</td>
+                        <td style="padding: 8px 12px; font-family: monospace;">category, test category, group, device, product</td>
+                        <td style="padding: 8px 12px;">Groups test methods together on the dashboard.</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--color-border);">
+                        <td style="padding: 8px 12px; font-weight: 600;">Test Method</td>
+                        <td style="padding: 8px 12px; font-family: monospace;">method, test method, method name, name</td>
+                        <td style="padding: 8px 12px;">Name of the test (e.g., Drop Test).</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid var(--color-border);">
+                        <td style="padding: 8px 12px; font-weight: 600;">Test Number</td>
+                        <td style="padding: 8px 12px; font-family: monospace;">number, test number, test #, ref, code</td>
+                        <td style="padding: 8px 12px;">Unique test method identifier (e.g., TM-003440).</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h4 style="margin: 16px 0 8px; color: var(--color-primary); font-size: 14px;">3. Timeline & Phase Columns (Required for Gantt Chart)</h4>
+            <p style="margin: 0 0 8px;">The Gantt chart charts test progress through four chained phases: <strong>Proto</strong>, <strong>DVT</strong>, <strong>EVT</strong>, and <strong>PVT</strong>. Each phase requires three parameters:</p>
+            <ul style="padding-left: 20px; margin: 0 0 16px;">
+                <li><strong>Qty (Sample Quantity)</strong>: Number of samples (e.g. <code>Proto1</code>, <code>DVT1</code>).</li>
+                <li><strong>Weeks (Duration Weeks)</strong>: Number of weeks (e.g. <code>Proto1_Date (Week)</code>, <code>DVT1_Date (Week)2</code>).</li>
+                <li><strong>Days (Duration Days)</strong>: Remainder days (e.g. <code>Proto1_Date (Day)</code>, <code>DVT1_Date (Day)3</code>).</li>
+            </ul>
+
+            <h4 style="margin: 16px 0 8px; color: var(--color-primary); font-size: 14px;">4. Recommended Metadata</h4>
+            <ul style="padding-left: 20px; margin: 0 0 16px;">
+                <li><strong>Start Date</strong>: Customizable starting date for the test method (e.g., <code>Start Date</code>, YYYY-MM-DD). If omitted, start date defaults to today.</li>
+                <li><strong>Defect Qty</strong>: Number of failed samples (e.g. <code>defect qty</code>, <code>defects</code>).</li>
+                <li><strong>Comments</strong>: Test notes or failure reasons (e.g. <code>comments</code>, <code>notes</code>).</li>
+            </ul>
+        </div>
+        <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.1); gap: 12px;">
+            <button class="btn btn-primary" id="btn-close-guide" type="button">Understood</button>
+        </div>
+    </div>
+</div>
+
+<!-- File Validation Scan Report Modal -->
+<div class="modal-backdrop" id="scan-modal">
+    <div class="modal-card" style="max-width: 800px; max-height: 85vh; display: flex; flex-direction: column;">
+        <div class="modal-header">
+            <h2 style="margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-file-shield" style="color: var(--color-primary);"></i> File Health Scan Report
+            </h2>
+            <button class="modal-close-btn" id="btn-close-scan-x" type="button" style="background: none; border: none; cursor: pointer;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="modal-body" style="padding: 24px; overflow-y: auto; font-size: 13px; line-height: 1.5; color: var(--color-text-main);">
+            <!-- Status Banner -->
+            <div id="scan-status-banner" style="display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px;">
+                <div id="scan-status-icon" style="font-size: 32px;"></div>
+                <div>
+                    <h3 id="scan-status-title" style="margin: 0; font-size: 16px; font-weight: 700;"></h3>
+                    <p id="scan-status-desc" style="margin: 4px 0 0 0; font-size: 12px; color: rgba(255,255,255,0.7);"></p>
+                </div>
+            </div>
+
+            <!-- Sheets list details -->
+            <h4 style="margin: 0 0 12px; font-size: 14px; font-weight: 600;">Workbook Details</h4>
+            <div id="scan-sheets-container" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+        <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.1);">
+            <span style="font-size: 12px; color: var(--color-text-muted);">Please review the issues listed above.</span>
+            <div style="display: flex; gap: 12px;">
+                <button class="btn btn-secondary" id="btn-scan-cancel" type="button">Cancel</button>
+                <button class="btn btn-primary" id="btn-scan-proceed" style="background: var(--pbi-green); border-color: var(--pbi-green);" type="button">Proceed to Navigator</button>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

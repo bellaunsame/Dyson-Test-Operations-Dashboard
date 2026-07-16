@@ -272,6 +272,34 @@
         </table>
     </div>
 
+    {% if milestones %}
+    <div class="avoid-break mb-8" style="margin-top: 15px;">
+        <div class="section-header">
+            <h2>Project Milestones</h2>
+        </div>
+        <table class="border rounded-lg shadow-sm">
+            <thead>
+                <tr>
+                    <th>Milestone</th>
+                    <th class="center">Cutoff Week</th>
+                    <th class="center">Cutoff Year</th>
+                    <th class="center">Target Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ms in milestones %}
+                <tr>
+                    <td style="font-weight:600;">{{ ms.name }}</td>
+                    <td class="center">{{ ms.week }}</td>
+                    <td class="center">{{ ms.year }}</td>
+                    <td class="center">{{ ms.date_str }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
     {% if comment %}
     <div class="comment-box avoid-break">
         <div style="font-size:8px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Report Comment</div>
@@ -298,9 +326,16 @@
             <div class="col-label">Test Description</div>
             <div class="col-timeline">
                 <div style="width:40px;text-align:center;font-weight:700;color:#fff;font-size:9px;flex-shrink:0;">#</div>
-                <div style="flex:1;display:flex;gap:0;">
+                <div style="flex:1;display:flex;gap:0;position:relative;">
                     {% for unit in timeline_headers %}
                     <div style="width:{{ unit.width_pct }}%;border-right:1px solid rgba(255,255,255,0.12);padding:4px 0;font-size:8px;text-align:center;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ unit.label }}</div>
+                    {% endfor %}
+                    {% for ms in milestones %}
+                    {% if ms.left_percent >= 0 and ms.left_percent <= 100 %}
+                    <div style="position:absolute;left:{{ ms.left_percent }}%;top:0;bottom:0;pointer-events:none;">
+                        <span style="position:absolute;top:-13px;left:-14px;background:#e11d48;color:#fff;font-size:6px;font-weight:bold;padding:1px 3px;border-radius:2px;white-space:nowrap;z-index:10;box-shadow:0 1px 2px rgba(0,0,0,0.15);">{{ ms.name }}</span>
+                    </div>
+                    {% endif %}
                     {% endfor %}
                 </div>
             </div>
@@ -318,11 +353,16 @@
             </div>
             <div class="gantt-timeline">
                 <div style="width:40px;text-align:center;color:#64748b;font-size:9px;font-weight:600;flex-shrink:0;">{{ loop.index }}</div>
-                <div style="flex:1;position:relative;height:22px;border:1px solid #e6eef8;background:#ffffff;border-radius:3px;">
+                <div style="flex:1;position:relative;height:22px;border:1px solid #e6eef8;background:#ffffff;border-radius:3px;overflow:hidden;">
                     {% for bar in row.bars %}
-                    <div style="position:absolute;left:{{ bar.left_percent_full }}%;width:{{ bar.width_percent_full }}%;height:100%;background:{{ bar.color }};border-radius:2px;border:1px solid rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;font-weight:700;overflow:hidden;padding:0 4px;">
+                    <div style="position:absolute;left:{{ bar.left_percent_full }}%;width:{{ bar.width_percent_full }}%;height:100%;background:{{ bar.color }};border-radius:2px;border:1px solid rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;font-weight:700;overflow:hidden;padding:0 4px;z-index:2;">
                         {{ bar.phase }} {{ bar.duration_text }}
                     </div>
+                    {% endfor %}
+                    {% for ms in milestones %}
+                    {% if ms.left_percent >= 0 and ms.left_percent <= 100 %}
+                    <div style="position:absolute;left:{{ ms.left_percent }}%;top:0;bottom:0;border-left:1px dashed #e11d48;width:0;z-index:1;pointer-events:none;"></div>
+                    {% endif %}
                     {% endfor %}
                 </div>
             </div>

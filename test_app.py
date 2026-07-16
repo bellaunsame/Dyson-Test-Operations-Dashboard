@@ -253,6 +253,39 @@ class TestOpsDashboardBackend(unittest.TestCase):
         self.assertIn('Category', df_saved.columns)
         self.assertNotIn('RemoveMe', df_saved.columns)
 
+    def test_api_projects_scan(self):
+        # Tests that the validation scan endpoint validates sheets, mapping, and integrity correctly.
+        with self.app.session_transaction() as sess:
+            sess['logged_in'] = True
+            sess['username'] = 'admin'
+            sess['_permanent'] = True
+
+        import io
+        excel_data = io.BytesIO()
+        df = pd.DataFrame([
+            {
+                "Category": "Attachment",
+                "Test Method": "Drop Test",
+                "Test Number": "TM-003"
+            }
+        ])
+        with pd.ExcelWriter(excel_data, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='SheetScan')
+        excel_data.seek(0)
+
+        response = self.app.post(
+            '/api/projects/scan',
+            data={'file': (excel_data, 'test_scan.xlsx')},
+            content_type='multipart/form-data'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        res_data = response.get_json()
+        self.assertTrue(res_data['success'])
+        self.assertEqual(res_data['filename'], 'test_scan.xlsx')
+        self.assertIn('SheetScan', res_data['sheets'])
+        self.assertEqual(res_data['sheets']['SheetScan']['status'], 'warning')
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -68,9 +68,14 @@
             </div>
             <p style="margin: 0; font-size: 13px; color: var(--color-text-muted);">{{ project.description or 'No description provided.' }}</p>
         </div>
-        <button class="btn btn-primary" id="btn-add-row" style="padding: 8px 16px; font-weight: 600;">
-            <i class="fa-solid fa-plus"></i> Add Row
-        </button>
+        <div style="display: flex; gap: 10px;">
+            <a href="/chart?project={{ project.name | urlencode }}" class="btn btn-secondary" style="padding: 8px 16px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-square-poll-horizontal" style="color: var(--color-primary);"></i> View Gantt
+            </a>
+            <button class="btn btn-primary" id="btn-add-row" style="padding: 8px 16px; font-weight: 600;">
+                <i class="fa-solid fa-plus"></i> Add Row
+            </button>
+        </div>
     </header>
 
     <!-- Table Container -->
