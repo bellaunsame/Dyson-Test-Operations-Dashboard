@@ -264,10 +264,8 @@ FUZZY_RULES = {
     "pvt_qty": ['pvt qty', 'pvt_qty', 'pvt_quantity', 'pvt quantity', 'pvt1', 'pvt1_qty', 'pvt_qty'],
 }
 
-def get_project_milestones(project_name):
+def get_project_milestones(project_name=None):
     """Searches the uploads folder for Excel files with Project Milestone sheet and filters for project_name."""
-    if not project_name:
-        return []
     milestones = []
     excel_files = [EXCEL_PATH]
     if os.path.exists(UPLOAD_FOLDER):
@@ -292,8 +290,12 @@ def get_project_milestones(project_name):
                     df.columns = [str(c).strip() for c in df.columns]
                     if 'Project' in df.columns and 'Milestone' in df.columns:
                         df['Project_str'] = df['Project'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-                        proj_str = str(project_name).strip().replace('.0', '')
-                        proj_df = df[df['Project_str'] == proj_str]
+                        if project_name and str(project_name).strip().lower() != 'all':
+                            proj_str = str(project_name).strip().replace('.0', '')
+                            proj_df = df[df['Project_str'] == proj_str]
+                        else:
+                            proj_df = df
+
                         for _, row in proj_df.iterrows():
                             ms_name = str(row['Milestone']).strip()
                             if pd.isna(row['Milestone']) or ms_name == 'nan':
@@ -306,21 +308,31 @@ def get_project_milestones(project_name):
                                 week_num = int(float(week_val))
                                 year_num = int(float(year_val))
                                 date_obj = datetime.datetime.strptime(f"{year_num}-W{week_num}-1", "%G-W%V-%u")
+                                
+                                fmt_lbl = row.get('Cutoff Year.1')
+                                if pd.isna(fmt_lbl) or not fmt_lbl:
+                                    fmt_lbl = f"W{week_num},{str(year_num)[-2:]}"
+                                else:
+                                    fmt_lbl = str(fmt_lbl).strip()
+
+                                proj_val = str(row.get('Project', '')).strip().replace('.0', '')
                                 milestones.append({
+                                    "project": proj_val,
                                     "name": ms_name,
                                     "week": week_num,
                                     "year": year_num,
+                                    "formatted": fmt_lbl,
                                     "date": date_obj,
                                     "date_str": date_obj.strftime("%Y-%m-%d")
                                 })
                             except Exception:
                                 pass
                         if milestones:
-                            milestones.sort(key=lambda x: x['date'])
+                            milestones.sort(key=lambda x: (x['project'], x['date']))
                             return milestones
         except Exception as e:
             print(f"Error reading milestones: {e}")
-    return []
+    return milestones
 
 class ExcelDataStore:
     @staticmethod
@@ -803,6 +815,89 @@ def api_project_row_detail(project_name, row_id):
         rows = ExcelDataStore.get_project_rows(project_name)
         return jsonify(rows[row_id] if row_id < len(rows) else {})
     return jsonify({"error": "Failed to update row"}), 500
+
+@app.route('/api/projects/<project_name>/milestones', methods=['GET'])
+@login_required
+def api_project_milestones_endpoint(project_name):
+    ms = get_project_milestones(project_name)
+    return jsonify(ms)
+
+@app.route('/api/milestones', methods=['GET'])
+@login_required
+def api_all_milestones_endpoint():
+    ms = get_project_milestones('all')
+    return jsonify(ms)
+
+def get_master_data_lab_mappings():
+    """Returns labs list, lab_test_numbers dict, lab_test_methods dict from Master_Data sheet."""
+    target_files = [EXCEL_PATH, os.path.join(UPLOAD_FOLDER, 'SystemBoard (1).xlsx'), os.path.join(app.root_path, 'templates', 'SystemBoard.xlsx')]
+    
+    for filepath in target_files:
+        if not os.path.exists(filepath):
+            continue
+        try:
+            with pd.ExcelFile(filepath) as xl:
+                master_sheet = None
+                for sheet in xl.sheet_names:
+                    if sheet.lower().strip() in ['master_data', 'master data']:
+                        master_sheet = sheet
+                        break
+                if master_sheet:
+                    df = xl.parse(master_sheet)
+                    lab_col = None
+                    test_num_col = None
+                    test_method_col = None
+                    
+                    for col in df.columns:
+                        col_str = str(col).lower().strip()
+                        if 'laboratory' in col_str or col_str == 'lab':
+                            lab_col = col
+                        elif 'test number' in col_str or col_str in ['test #', 'test_number', 'number']:
+                            test_num_col = col
+                        elif col_str in ['test', 'test method', 'test_method', 'method']:
+                            test_method_col = col
+                            
+                    if lab_col:
+                        labs = []
+                        lab_test_numbers = {}
+                        lab_test_methods = {}
+                        
+                        for idx, row in df.iterrows():
+                            lab_val = str(row[lab_col]).strip() if pd.notna(row[lab_col]) else None
+                            if not lab_val or lab_val.lower() == 'nan':
+                                continue
+                            if lab_val not in lab_test_numbers:
+                                lab_test_numbers[lab_val] = set()
+                                lab_test_methods[lab_val] = set()
+                                if lab_val not in labs:
+                                    labs.append(lab_val)
+                                
+                            if test_num_col and pd.notna(row[test_num_col]):
+                                num_val = str(row[test_num_col]).strip()
+                                if num_val and num_val.lower() != 'nan':
+                                    lab_test_numbers[lab_val].add(num_val)
+                                    
+                            if test_method_col and pd.notna(row[test_method_col]):
+                                meth_val = str(row[test_method_col]).strip()
+                                if meth_val and meth_val.lower() != 'nan':
+                                    lab_test_methods[lab_val].add(meth_val)
+                                    
+                        return sorted(list(set(labs))), lab_test_numbers, lab_test_methods
+        except Exception as e:
+            print(f"Error reading Master_Data from {filepath}: {e}")
+            
+    return [], {}, {}
+
+@app.route('/api/master-data/laboratories', methods=['GET'])
+@login_required
+def api_master_data_laboratories():
+    """Returns list of laboratories and mapping of lab -> test numbers/test methods from Master_Data sheet."""
+    labs, lab_test_numbers, lab_test_methods = get_master_data_lab_mappings()
+    return jsonify({
+        "laboratories": labs,
+        "lab_test_numbers": {k: list(v) for k, v in lab_test_numbers.items()},
+        "lab_test_methods": {k: list(v) for k, v in lab_test_methods.items()}
+    })
 
 # --- SHAREPOINT & EXCEL ENDPOINTS ---
 
@@ -2064,11 +2159,34 @@ def generate_email_summary_pdf(filename, project_name=None, comment=None):
     return True
 
 
+def resolve_record_laboratory(r, lab_test_numbers, lab_test_methods):
+    if r.get("Laboratory") and str(r.get("Laboratory")).strip():
+        return str(r.get("Laboratory")).strip()
+    
+    test_num = str(r.get("Test Number", "")).strip().lower()
+    test_meth = str(r.get("Test Method", "")).strip().lower()
+    cat = str(r.get("Category", "")).strip()
+
+    if test_num and test_num != "unknown":
+        for lab, nums in lab_test_numbers.items():
+            if any(str(n).strip().lower() == test_num for n in nums):
+                return lab
+
+    if test_meth and test_meth != "untitled":
+        for lab, meths in lab_test_methods.items():
+            if any(str(m).strip().lower() == test_meth for m in meths):
+                return lab
+
+    return cat or "N/A"
+
+
 # --- PDF REPORT GENERATION ---
-def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None, custom_start_date=None):
+def generate_pdf_report(filename, project_name=None, comment=None, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None, custom_start_date=None, laboratory_filter=None, span_start=None, span_end=None):
     """Generates a styled Test Operations PDF report by rendering a Jinja HTML template and using Edge/Chrome headless to print to PDF."""
     if progress_callback:
         progress_callback(10, "Analyzing project data...")
+
+    labs, lab_test_numbers, lab_test_methods = get_master_data_lab_mappings()
 
     timeline_type = normalize_timeline_type(timeline_type)
     if project_name:
@@ -2077,6 +2195,31 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         records_dict = []
         for p in ExcelDataStore.get_projects():
             records_dict.extend(ExcelDataStore.get_project_rows(p["name"]))
+
+    # Enrich all records with Laboratory mapping
+    for r in records_dict:
+        r["Laboratory"] = resolve_record_laboratory(r, lab_test_numbers, lab_test_methods)
+
+    # Apply laboratory filter if specified
+    if laboratory_filter and str(laboratory_filter).strip().lower() != 'all':
+        lab_name = str(laboratory_filter).strip()
+        
+        matched_lab = None
+        for k in lab_test_numbers.keys():
+            if k.lower() == lab_name.lower():
+                matched_lab = k
+                break
+                
+        if matched_lab:
+            allowed_nums = set(str(x).strip().lower() for x in lab_test_numbers.get(matched_lab, set()))
+            allowed_meths = set(str(x).strip().lower() for x in lab_test_methods.get(matched_lab, set()))
+            
+            records_dict = [
+                r for r in records_dict
+                if (str(r.get("Test Number", "")).strip().lower() in allowed_nums)
+                or (str(r.get("Test Method", "")).strip().lower() in allowed_meths)
+                or (str(r.get("Category", "")).strip().lower() == lab_name.lower())
+            ]
 
     # Apply category filter if specified
     if category_filter and str(category_filter).strip().lower() != 'all':
@@ -2130,6 +2273,20 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
             else:
                 if max_date is None or phase_start > max_date:
                     max_date = phase_start
+
+    # Apply custom span range clamping if specified by user
+    if span_start and span_start.strip():
+        try:
+            span_start_dt = datetime.datetime.strptime(span_start.strip(), '%Y-%m-%d')
+            min_date = span_start_dt
+        except Exception:
+            pass
+    if span_end and span_end.strip():
+        try:
+            span_end_dt = datetime.datetime.strptime(span_end.strip(), '%Y-%m-%d')
+            max_date = span_end_dt
+        except Exception:
+            pass
 
     # Mathematical timeline slicing into 4-week chunks (28 days)
     timeline_chunks = []
@@ -2206,23 +2363,34 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         # full timeline in weeks for header numbering
         total_weeks = int((total_span_days + 6) // 7)
 
-        # Build timeline headers list with exact width percentages based on duration of each unit in total_span_days
+        # Build timeline headers using the user-selected scale (timeline_type).
+        # When the column count is high, we skip labels on some columns to keep text readable,
+        # but every column still gets its proportional width so bar positioning stays accurate.
         min_date_val = min_date.date()
         max_date_val = max_date.date()
-        
+
         if timeline_type == 'days':
-            width_pct = (1.0 / float(total_span_days)) * 100.0
-            for i in range(1, total_span_days + 1):
-                label = ""
-                if total_span_days <= 35:
-                    label = str(i)
-                else:
-                    if i == 1 or i % 5 == 0:
-                        label = str(i)
-                timeline_headers.append({
-                    "label": label,
-                    "width_pct": round(width_pct, 4)
-                })
+            if total_span_days <= 35:
+                width_pct = (1.0 / float(total_span_days)) * 100.0
+                for i in range(1, total_span_days + 1):
+                    timeline_headers.append({
+                        "label": str(i),
+                        "width_pct": round(width_pct, 4)
+                    })
+            else:
+                # Group days into step chunks so blocks remain wide and legible
+                step = 7 if total_span_days <= 90 else (14 if total_span_days <= 180 else 30)
+                idx = 1
+                while idx <= total_span_days:
+                    end_idx = min(idx + step - 1, total_span_days)
+                    num_days_chunk = (end_idx - idx + 1)
+                    width_pct = (num_days_chunk / float(total_span_days)) * 100.0
+                    timeline_headers.append({
+                        "label": f"D{idx}",
+                        "width_pct": round(width_pct, 4)
+                    })
+                    idx = end_idx + 1
+
         elif timeline_type == 'months':
             curr = min_date_val
             while curr <= max_date_val:
@@ -2236,11 +2404,16 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
                 days_in_month = (month_end - month_start).days
                 if days_in_month > 0:
                     width_pct = (days_in_month / float(total_span_days)) * 100.0
+                    if (max_date_val - min_date_val).days > 365:
+                        lbl = curr.strftime("%b '%y")
+                    else:
+                        lbl = curr.strftime('%b')
                     timeline_headers.append({
-                        "label": curr.strftime('%b'),
+                        "label": lbl,
                         "width_pct": round(width_pct, 4)
                     })
                 curr = next_month_start
+
         elif timeline_type == 'years':
             curr_year = min_date_val.year
             while curr_year <= max_date_val.year:
@@ -2255,14 +2428,29 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
                         "width_pct": round(width_pct, 4)
                     })
                 curr_year += 1
-        else: # 'weeks'
-            width_pct = (7.0 / float(total_span_days)) * 100.0
-            total_weeks_val = total_span_days // 7
-            for i in range(1, total_weeks_val + 1):
-                timeline_headers.append({
-                    "label": str(i),
-                    "width_pct": round(width_pct, 4)
-                })
+
+        else: # 'weeks' (default)
+            total_weeks_val = max(total_span_days // 7, 1)
+            if total_weeks_val <= 20:
+                width_pct = (7.0 / float(total_span_days)) * 100.0
+                for i in range(1, total_weeks_val + 1):
+                    timeline_headers.append({
+                        "label": f"W{i}",
+                        "width_pct": round(width_pct, 4)
+                    })
+            else:
+                # Group weeks into step chunks to ensure blocks are wide enough for labels and zero barcode grid lines
+                step = 4 if total_weeks_val <= 52 else (8 if total_weeks_val <= 104 else 12)
+                idx = 1
+                while idx <= total_weeks_val:
+                    end_idx = min(idx + step - 1, total_weeks_val)
+                    num_weeks_chunk = (end_idx - idx + 1)
+                    width_pct = ((num_weeks_chunk * 7.0) / float(total_span_days)) * 100.0
+                    timeline_headers.append({
+                        "label": f"W{idx}",
+                        "width_pct": round(width_pct, 4)
+                    })
+                    idx = end_idx + 1
 
         chunk_rows = []
         for r in records_dict:
@@ -2320,6 +2508,7 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
                     "method": r.get("Test Method", "Untitled"),
                     "number": r.get("Test Number", "Unknown"),
                     "category": r.get("Category", "General"),
+                    "laboratory": r.get("Laboratory", "N/A"),
                     "bars": row_bars
                 })
 
@@ -2387,6 +2576,7 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         "records_by_cat": records_by_cat,
         "rejected_records": rejected_records,
         "rej_by_cat": rej_by_cat,
+        "selected_laboratory": laboratory_filter if laboratory_filter and str(laboratory_filter).strip().lower() != 'all' else 'All Laboratories',
         "selected_category": category_filter if category_filter and str(category_filter).strip().lower() != 'all' else 'All Categories',
         "timeline_type": timeline_type,
         "timeline_label": timeline_label,
@@ -2439,14 +2629,11 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         progress_callback(90, "Compiling PDF document via headless browser...")
 
     try:
-        try:
-            convert_html_to_pdf(temp_html_path, filename)
-        except Exception as browser_error:
-            if progress_callback:
-                progress_callback(90, "Browser PDF renderer unavailable; using fallback export...")
-            generate_pdf_fallback(filename, project_name=project_name, comment=comment, records_dict=records_dict, timeline_type=timeline_type)
+        convert_html_to_pdf(temp_html_path, filename)
+    except Exception as browser_error:
         if progress_callback:
-            progress_callback(100, "Completed!")
+            progress_callback(90, "Browser PDF renderer unavailable; using fallback export...")
+        generate_pdf_fallback(filename, project_name=project_name, comment=comment, records_dict=records_dict, timeline_type=timeline_type)
     finally:
         try:
             if os.path.exists(temp_html_path):
@@ -2456,7 +2643,7 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
 
 
 # --- CONSOLIDATED PDF REPORT GENERATION ---
-def generate_consolidated_pdf_report(filename, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None, custom_start_date=None):
+def generate_consolidated_pdf_report(filename, progress_callback=None, category_filter=None, timeline_type='weeks', test_method_filter=None, custom_start_date=None, laboratory_filter=None, span_start=None, span_end=None):
     """Generates a consolidated PDF for ALL active projects by rendering each project
     separately and merging the resulting PDFs with PyPDF2."""
     projects = ExcelDataStore.get_projects()
@@ -2483,7 +2670,7 @@ def generate_consolidated_pdf_report(filename, progress_callback=None, category_
                 progress_callback(mapped, msg)
 
         try:
-            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date)
+            generate_pdf_report(tmp_pdf.name, project_name=pname, progress_callback=_sub_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date, laboratory_filter=laboratory_filter, span_start=span_start, span_end=span_end)
             per_project_pdfs.append(tmp_pdf.name)
         except Exception as e:
             # Skip failed projects but log the error
@@ -2505,12 +2692,11 @@ def generate_consolidated_pdf_report(filename, progress_callback=None, category_
         merger = PdfMerger()
         for pdf_path in per_project_pdfs:
             merger.append(pdf_path)
-        with open(filename, "wb") as out_f:
-            merger.write(out_f)
+
+        merger.write(filename)
         merger.close()
     except ImportError:
         # PyPDF2 not installed — fall back to concatenating raw bytes
-        # (works for simple PDFs but may produce a malformed cross-reference table)
         import shutil as _sh2
         if len(per_project_pdfs) == 1:
             _sh2.copy2(per_project_pdfs[0], filename)
@@ -2520,9 +2706,11 @@ def generate_consolidated_pdf_report(filename, progress_callback=None, category_
                     with open(pdf_path, "rb") as in_f:
                         out_f.write(in_f.read())
     finally:
+        # Clean up temporary per-project PDFs
         for pdf_path in per_project_pdfs:
             try:
-                os.remove(pdf_path)
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
             except Exception:
                 pass
 
@@ -2535,21 +2723,27 @@ def generate_consolidated_pdf_report(filename, progress_callback=None, category_
 @login_required
 def generate_report():
     project_name = request.args.get('project')
+    laboratory = request.args.get('laboratory', 'all')
     category = request.args.get('category', 'all')
     timeline_type = request.args.get('scale') or request.args.get('timeline') or 'weeks'
     test_method = request.args.get('test_method') or request.args.get('testmethod') or 'all'
+    custom_start_date = request.args.get('custom_start_date')
+    span_start = request.args.get('span_start')
+    span_end = request.args.get('span_end')
     
     print("================================")
     print("PROJECT =", project_name)
+    print("LABORATORY =", laboratory)
     print("CATEGORY =", category)
     print("TIMELINE TYPE =", timeline_type)
     print("TEST METHOD =", test_method)
+    print("SPAN =", span_start, "to", span_end)
     print("================================")
     
     comment = request.args.get('comment')
     pdf_filename = os.path.join(UPLOAD_FOLDER, "Daily_Operations_Report.pdf")
     try:
-        generate_pdf_report(pdf_filename, project_name, comment, category_filter=category, timeline_type=timeline_type, test_method_filter=test_method)
+        generate_pdf_report(pdf_filename, project_name, comment, category_filter=category, timeline_type=timeline_type, test_method_filter=test_method, custom_start_date=custom_start_date, laboratory_filter=laboratory, span_start=span_start, span_end=span_end)
         download_name = f"Gantt_Report_{project_name}.pdf" if project_name else "Operations_Report.pdf"
         return send_file(pdf_filename, as_attachment=True, download_name=download_name, mimetype='application/pdf')
     except Exception as e:
@@ -2560,12 +2754,16 @@ def generate_report():
 @app.route('/generate-consolidated-report', methods=['GET'])
 @login_required
 def generate_consolidated_report():
+    laboratory = request.args.get('laboratory', 'all')
     category = request.args.get('category', 'all')
     timeline_type = request.args.get('scale') or request.args.get('timeline') or 'weeks'
     test_method = request.args.get('test_method') or request.args.get('testmethod') or 'all'
+    custom_start_date = request.args.get('custom_start_date')
+    span_start = request.args.get('span_start')
+    span_end = request.args.get('span_end')
     pdf_filename = os.path.join(UPLOAD_FOLDER, "Consolidated_Project_Report.pdf")
     try:
-        generate_consolidated_pdf_report(pdf_filename, category_filter=category, timeline_type=timeline_type, test_method_filter=test_method)
+        generate_consolidated_pdf_report(pdf_filename, category_filter=category, timeline_type=timeline_type, test_method_filter=test_method, custom_start_date=custom_start_date, laboratory_filter=laboratory, span_start=span_start, span_end=span_end)
         return send_file(pdf_filename, as_attachment=True, download_name="Consolidated_Project_Report.pdf", mimetype='application/pdf')
     except Exception as e:
         return jsonify({"error": f"Failed to generate consolidated PDF: {str(e)}"}), 500
@@ -2577,10 +2775,13 @@ export_tasks = {}
 @login_required
 def start_consolidated_export():
     data = request.json or {}
+    laboratory_filter = data.get('laboratory')
     category_filter = data.get('category')
     timeline_type = data.get('scale') or data.get('timeline')
     test_method_filter = data.get('test_method') or data.get('testmethod')
     custom_start_date = data.get('custom_start_date')
+    span_start = data.get('span_start')
+    span_end = data.get('span_end')
 
     task_id = str(uuid.uuid4())
     export_tasks[task_id] = {
@@ -2598,7 +2799,7 @@ def start_consolidated_export():
                 export_tasks[task_id]["message"] = msg
             
         try:
-            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date)
+            generate_consolidated_pdf_report(temp_pdf, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date, laboratory_filter=laboratory_filter, span_start=span_start, span_end=span_end)
             if task_id in export_tasks:
                 export_tasks[task_id]["status"] = "completed"
                 export_tasks[task_id]["progress"] = 100
@@ -2624,10 +2825,13 @@ def start_project_export():
     data = request.json or {}
     project_name = data.get('project')
     comment = data.get('comment')
+    laboratory_filter = data.get('laboratory')
     category_filter = data.get('category')
     timeline_type = data.get('scale') or data.get('timeline')
     test_method_filter = data.get('test_method') or data.get('testmethod')
     custom_start_date = data.get('custom_start_date')
+    span_start = data.get('span_start')
+    span_end = data.get('span_end')
     
     task_id = str(uuid.uuid4())
     export_tasks[task_id] = {
@@ -2645,7 +2849,7 @@ def start_project_export():
                 export_tasks[task_id]["message"] = msg
             
         try:
-            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date)
+            generate_pdf_report(temp_pdf, project_name, comment, progress_callback=update_progress, category_filter=category_filter, timeline_type=timeline_type, test_method_filter=test_method_filter, custom_start_date=custom_start_date, laboratory_filter=laboratory_filter, span_start=span_start, span_end=span_end)
             if task_id in export_tasks:
                 export_tasks[task_id]["status"] = "completed"
                 export_tasks[task_id]["progress"] = 100

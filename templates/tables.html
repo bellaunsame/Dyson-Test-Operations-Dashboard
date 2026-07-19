@@ -19,18 +19,19 @@
 
     <!-- Controls Row -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px;">
-        <!-- Active/Archived Toggles -->
+        <!-- Active/Archived/Milestones Toggles -->
         <div class="toggle-group" style="display: flex; background: var(--color-border); padding: 4px; border-radius: 6px; gap: 4px;">
-            <button class="toggle-btn active" id="toggle-active" style="padding: 6px 16px; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--color-card-bg); color: var(--color-text);">Active</button>
+            <button class="toggle-btn active" id="toggle-active" style="padding: 6px 16px; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--color-card-bg); color: var(--color-text);">Active Projects</button>
             <button class="toggle-btn" id="toggle-archived" style="padding: 6px 16px; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; background: transparent; color: var(--color-text-muted);">Archived</button>
+            <button class="toggle-btn" id="toggle-milestones" style="padding: 6px 16px; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; background: transparent; color: var(--color-text-muted);">🚩 Project Milestones Sheet</button>
         </div>
 
         <!-- Search Bar -->
         <div style="display: flex; gap: 8px; width: 100%; max-width: 300px;">
-            <input type="text" id="search-projects" placeholder="Search projects..." style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-card-bg); color: var(--color-text); font-size: 13px; outline: none;">
+            <input type="text" id="search-projects" placeholder="Search..." style="flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-card-bg); color: var(--color-text); font-size: 13px; outline: none;">
             <button class="btn btn-secondary" style="padding: 8px 12px; border-radius: 6px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-magnifying-glass"></i></button>
         </div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+        <div id="project-actions-group" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
             <button class="btn btn-secondary" id="btn-select-all" type="button" style="padding: 8px 14px;">Select All</button>
             <button class="btn btn-secondary" id="btn-clear-all" type="button" style="padding: 8px 14px;">Clear All</button>
             <button class="btn btn-danger" id="btn-delete-selected" type="button" style="padding: 8px 14px;" disabled>Delete Selected</button>
@@ -46,8 +47,44 @@
         </div>
     </div>
 
+    <!-- Project Milestones Sheet Container -->
+    <div id="project-milestones-container" style="display: none; background: var(--color-card-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 20px; margin-bottom: 30px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 20px;">🚩</span>
+                <div>
+                    <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--color-text);">Master Project Milestones Sheet</h3>
+                    <p style="margin: 2px 0 0; font-size: 12px; color: var(--color-text-muted);">Cutoff schedule definitions loaded directly from sheet: <strong>Project Milestone</strong></p>
+                </div>
+            </div>
+            <span id="all-milestones-count-badge" style="display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; background: rgba(142,68,173,0.15); color: #a855f7; border: 1px solid rgba(142,68,173,0.3); font-weight: 700; font-size: 12px;">0 milestones</span>
+        </div>
+
+        <div class="table-responsive" style="overflow-x: auto;">
+            <table class="ops-table" style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
+                <thead>
+                    <tr style="background: rgba(255,255,255,0.02); border-bottom: 2px solid var(--color-border);">
+                        <th style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Project</th>
+                        <th style="padding: 12px 15px; font-weight: 700; border-right: 1px solid var(--color-border);">Milestone Name</th>
+                        <th style="padding: 12px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border);">Cutoff Week</th>
+                        <th style="padding: 12px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border);">Cutoff Year</th>
+                        <th style="padding: 12px 15px; font-weight: 700; text-align: center; border-right: 1px solid var(--color-border);">Week/Year Label</th>
+                        <th style="padding: 12px 15px; font-weight: 700; text-align: center;">Calculated Target Date</th>
+                    </tr>
+                </thead>
+                <tbody id="all-milestones-table-body">
+                    <tr>
+                        <td colspan="6" class="text-center" style="padding: 30px; color: var(--color-text-muted);">
+                            <i class="fa-solid fa-spinner fa-spin"></i> Loading Project Milestone sheet data...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Footer / Pagination -->
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; border-top: 1px solid var(--color-border); padding-top: 20px;">
+    <div id="projects-pagination-row" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; border-top: 1px solid var(--color-border); padding-top: 20px;">
         <span id="showing-count" style="font-size: 13px; color: var(--color-text-muted);">Showing 0-0 of 0</span>
         <div class="pagination" style="display: flex; gap: 6px;">
             <button class="btn btn-secondary" id="btn-prev" style="padding: 6px 12px; font-size: 12px; font-weight: 600;" disabled>◀ Prev</button>
@@ -62,10 +99,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeTab = 'Active';
     let searchQuery = '';
     let projectsData = [];
+    let milestonesData = [];
 
     const cardsContainer = document.getElementById('project-cards-container');
+    const milestonesContainer = document.getElementById('project-milestones-container');
+    const actionsGroup = document.getElementById('project-actions-group');
+    const paginationRow = document.getElementById('projects-pagination-row');
     const toggleActive = document.getElementById('toggle-active');
     const toggleArchived = document.getElementById('toggle-archived');
+    const toggleMilestones = document.getElementById('toggle-milestones');
     const searchInput = document.getElementById('search-projects');
     const showingCount = document.getElementById('showing-count');
     const btnSelectAll = document.getElementById('btn-select-all');
@@ -75,35 +117,111 @@ document.addEventListener('DOMContentLoaded', () => {
     const selectedProjects = new Set();
 
     // Tab toggling
-    toggleActive.addEventListener('click', () => {
-        activeTab = 'Active';
-        toggleActive.classList.add('active');
-        toggleActive.style.background = 'var(--color-card-bg)';
-        toggleActive.style.color = 'var(--color-text)';
-        toggleArchived.classList.remove('active');
-        toggleArchived.style.background = 'transparent';
-        toggleArchived.style.color = 'var(--color-text-muted)';
-        currentPage = 1;
-        loadProjects();
-    });
+    function switchTab(tab) {
+        activeTab = tab;
+        [toggleActive, toggleArchived, toggleMilestones].forEach(btn => {
+            if (!btn) return;
+            btn.classList.remove('active');
+            btn.style.background = 'transparent';
+            btn.style.color = 'var(--color-text-muted)';
+        });
 
-    toggleArchived.addEventListener('click', () => {
-        activeTab = 'Archived';
-        toggleArchived.classList.add('active');
-        toggleArchived.style.background = 'var(--color-card-bg)';
-        toggleArchived.style.color = 'var(--color-text)';
-        toggleActive.classList.remove('active');
-        toggleActive.style.background = 'transparent';
-        toggleActive.style.color = 'var(--color-text-muted)';
-        currentPage = 1;
-        loadProjects();
-    });
+        if (tab === 'Active') {
+            toggleActive.classList.add('active');
+            toggleActive.style.background = 'var(--color-card-bg)';
+            toggleActive.style.color = 'var(--color-text)';
+            cardsContainer.style.display = 'grid';
+            milestonesContainer.style.display = 'none';
+            actionsGroup.style.display = 'flex';
+            paginationRow.style.display = 'flex';
+            loadProjects();
+        } else if (tab === 'Archived') {
+            toggleArchived.classList.add('active');
+            toggleArchived.style.background = 'var(--color-card-bg)';
+            toggleArchived.style.color = 'var(--color-text)';
+            cardsContainer.style.display = 'grid';
+            milestonesContainer.style.display = 'none';
+            actionsGroup.style.display = 'flex';
+            paginationRow.style.display = 'flex';
+            loadProjects();
+        } else if (tab === 'Milestones') {
+            toggleMilestones.classList.add('active');
+            toggleMilestones.style.background = 'var(--color-card-bg)';
+            toggleMilestones.style.color = 'var(--color-text)';
+            cardsContainer.style.display = 'none';
+            milestonesContainer.style.display = 'block';
+            actionsGroup.style.display = 'none';
+            paginationRow.style.display = 'none';
+            loadAllMilestones();
+        }
+    }
+
+    toggleActive.addEventListener('click', () => switchTab('Active'));
+    toggleArchived.addEventListener('click', () => switchTab('Archived'));
+    if (toggleMilestones) toggleMilestones.addEventListener('click', () => switchTab('Milestones'));
+
+    function loadAllMilestones() {
+        fetch('/api/milestones')
+            .then(res => res.json())
+            .then(data => {
+                milestonesData = data;
+                renderAllMilestones();
+            })
+            .catch(err => console.error('Error loading milestones:', err));
+    }
+
+    function renderAllMilestones() {
+        const tbody = document.getElementById('all-milestones-table-body');
+        const badge = document.getElementById('all-milestones-count-badge');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        let filtered = milestonesData;
+        if (searchQuery) {
+            filtered = filtered.filter(m => 
+                (m.project && m.project.toLowerCase().includes(searchQuery)) ||
+                (m.name && m.name.toLowerCase().includes(searchQuery)) ||
+                (m.formatted && m.formatted.toLowerCase().includes(searchQuery))
+            );
+        }
+
+        if (badge) badge.textContent = `${filtered.length} milestone${filtered.length !== 1 ? 's' : ''}`;
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 30px; color: var(--color-text-muted);">No milestone records match your search.</td></tr>`;
+            return;
+        }
+
+        filtered.forEach(m => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--color-border)';
+            tr.innerHTML = `
+                <td style="padding: 10px 15px; font-weight: 700;">
+                    <a href="/tables/${encodeURIComponent(m.project)}" style="color: var(--color-primary); text-decoration: none;">
+                        <i class="fa-solid fa-folder" style="font-size:11px; margin-right:4px;"></i>${m.project}
+                    </a>
+                </td>
+                <td style="padding: 10px 15px; font-weight: 700; color: #a855f7;">
+                    <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#a855f7;margin-right:6px;"></span>${m.name}
+                </td>
+                <td style="padding: 10px 15px; text-align: center;">Week ${m.week}</td>
+                <td style="padding: 10px 15px; text-align: center;">${m.year}</td>
+                <td style="padding: 10px 15px; text-align: center; font-family: monospace; font-weight: 600; color: var(--color-primary);">${m.formatted || ''}</td>
+                <td style="padding: 10px 15px; text-align: center; font-weight: 600; color: var(--color-text);">${m.date_str}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
 
     // Search
     searchInput.addEventListener('input', (e) => {
         searchQuery = e.target.value.toLowerCase().trim();
-        currentPage = 1;
-        loadProjects();
+        if (activeTab === 'Milestones') {
+            renderAllMilestones();
+        } else {
+            currentPage = 1;
+            loadProjects();
+        }
     });
 
     // Select/clear/delete controls

@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
     const projectSelect = document.getElementById('gantt-project-select');
+    const laboratorySelect = document.getElementById('gantt-laboratory-select');
     const categorySelect = document.getElementById('gantt-category-select');
     const testMethodSelect = document.getElementById('gantt-testmethod-select');
     const scaleButtons = document.querySelectorAll('.scale-btn');
@@ -23,18 +24,25 @@ document.addEventListener('DOMContentLoaded', () => {
     // State variables
     let allProjects = [];
     let currentProjectName = '';
+    let currentLaboratory = 'all';
     let currentCategory = 'all';
     let currentTestMethod = 'all';
     let selectedTestMethods = new Set();
     let customStartDate = '';
     let currentScale = 'week'; // 'day' | 'week' | 'month' | 'year'
+    let spanStart = ''; // user-chosen timeline span start date (YYYY-MM-DD)
+    let spanEnd = '';   // user-chosen timeline span end date (YYYY-MM-DD)
     let rawRecords = []; // All records for the selected project
+    let masterDataLabs = [];
+    let labTestNumbersMap = {};
+    let labTestMethodsMap = {};
 
     // Initialize Page
     initGanttPage();
 
     function initGanttPage() {
-        // Fetch projects list
+        // Fetch master data laboratories and projects list
+        fetchMasterDataLaboratories();
         fetchProjects();
 
         // Project change handler
@@ -74,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const methodParam = selectedTestMethods.size > 0 ? Array.from(selectedTestMethods).join(',') : currentTestMethod;
                 const params = new URLSearchParams({ 
                     project: currentProjectName,
+                    laboratory: currentLaboratory,
                     category: currentCategory,
                     test_method: methodParam,
                     scale: currentScale
@@ -84,12 +93,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (customStartDate) {
                     params.set('custom_start_date', customStartDate);
                 }
+                if (spanStart) {
+                    params.set('span_start', spanStart);
+                }
+                if (spanEnd) {
+                    params.set('span_end', spanEnd);
+                }
 
                 if (window.showToast) {
                     window.showToast(`Exporting PDF for ${currentProjectName}...`, 'info');
                 }
                 if (window.triggerPdfDownload) {
-                    window.triggerPdfDownload(currentProjectName, currentCategory, currentScale, methodParam, customStartDate);
+                    window.triggerPdfDownload(currentProjectName, currentCategory, currentScale, methodParam, customStartDate, currentLaboratory, spanStart, spanEnd);
                 } else {
                     const exportUrl = `/generate-report?${params.toString()}`;
                     window.location.assign(exportUrl);
@@ -97,21 +112,27 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        // Laboratory change handler
+        if (laboratorySelect) {
+            laboratorySelect.addEventListener('change', (e) => {
+                currentLaboratory = e.target.value;
+                currentTestMethod = 'all';
+                selectedTestMethods.clear();
+                if (testMethodSelect) testMethodSelect.value = 'all';
+
+                applyFiltersAndRender();
+            });
+        }
+
         // Category change handler
         if (categorySelect) {
             categorySelect.addEventListener('change', (e) => {
                 currentCategory = e.target.value;
+                currentTestMethod = 'all';
+                selectedTestMethods.clear();
+                if (testMethodSelect) testMethodSelect.value = 'all';
 
-                let records = rawRecords;
-
-                if (currentCategory !== 'all') {
-                    records = records.filter(
-                        r => r.Category === currentCategory
-                    );
-                }
-
-                renderTestMethods(records);
-                renderGanttChart();
+                applyFiltersAndRender();
             });
         }
 
@@ -122,15 +143,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (currentTestMethod !== 'all' && currentTestMethod !== 'multiple') {
                     selectedTestMethods.add(currentTestMethod);
                 }
-                let records = rawRecords;
 
-                if (currentCategory !== 'all') {
-                    records = records.filter(
-                        r => r.Category === currentCategory
-                    );
-                }
-
-                renderTestMethods(records);
+                updateChipActiveStates();
                 renderGanttChart();
             });
         }
@@ -154,6 +168,27 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ganttStartDateInput) {
             ganttStartDateInput.addEventListener('change', (e) => {
                 customStartDate = e.target.value;
+                if (rawRecords.length > 0) {
+                    renderGanttChart();
+                }
+            });
+        }
+
+        // Span date range inputs
+        const spanStartInput = document.getElementById('gantt-span-start');
+        const spanEndInput = document.getElementById('gantt-span-end');
+
+        if (spanStartInput) {
+            spanStartInput.addEventListener('change', (e) => {
+                spanStart = e.target.value;
+                if (rawRecords.length > 0) {
+                    renderGanttChart();
+                }
+            });
+        }
+        if (spanEndInput) {
+            spanEndInput.addEventListener('change', (e) => {
+                spanEnd = e.target.value;
                 if (rawRecords.length > 0) {
                     renderGanttChart();
                 }
@@ -209,6 +244,58 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
+    function fetchMasterDataLaboratories() {
+        fetch('/api/master-data/laboratories')
+            .then(res => res.json())
+            .then(data => {
+                masterDataLabs = data.laboratories || [];
+                labTestNumbersMap = data.lab_test_numbers || {};
+                labTestMethodsMap = data.lab_test_methods || {};
+
+                if (laboratorySelect) {
+                    laboratorySelect.innerHTML = '<option value="all">All Laboratories</option>';
+                    masterDataLabs.forEach(lab => {
+                        const option = document.createElement('option');
+                        option.value = lab;
+                        option.textContent = lab;
+                        laboratorySelect.appendChild(option);
+                    });
+                }
+            })
+            .catch(err => {
+                console.error("Failed to load master data laboratories:", err);
+            });
+    }
+
+    function getFilteredRecordsForMethods() {
+        let records = rawRecords;
+
+        if (currentLaboratory !== 'all') {
+            const allowedNums = new Set((labTestNumbersMap[currentLaboratory] || []).map(x => String(x).trim()));
+            const allowedMethods = new Set((labTestMethodsMap[currentLaboratory] || []).map(x => String(x).trim()));
+
+            records = records.filter(r => {
+                const numMatch = r['Test Number'] && allowedNums.has(String(r['Test Number']).trim());
+                const methodMatch = r['Test Method'] && allowedMethods.has(String(r['Test Method']).trim());
+                const catMatch = r['Category'] && String(r['Category']).trim().toLowerCase() === currentLaboratory.toLowerCase();
+                return numMatch || methodMatch || catMatch;
+            });
+        }
+
+        if (currentCategory !== 'all') {
+            records = records.filter(r => r.Category === currentCategory);
+        }
+
+        return records;
+    }
+
+    function applyFiltersAndRender() {
+        const filteredForMethods = getFilteredRecordsForMethods();
+        populateTestMethods(filteredForMethods);
+        renderTestMethods(filteredForMethods);
+        renderGanttChart();
+    }
+
     // Load data for selected project
     function loadProjectData(projectName) {
         emptyState.style.display = 'none';
@@ -227,7 +314,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                // Populate categories dropdown dynamically
+                currentLaboratory = 'all';
+                if (laboratorySelect) laboratorySelect.value = 'all';
                 currentCategory = 'all';
                 currentTestMethod = 'all';
                 selectedTestMethods.clear();
@@ -235,13 +323,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ganttStartDateInput = document.getElementById('gantt-start-date');
                 if (ganttStartDateInput) ganttStartDateInput.value = '';
 
-                populateTestMethods(rawRecords);
                 populateCategories(rawRecords);
-                renderTestMethods(rawRecords);
-
-                // Show canvas and render chart
-                canvasWrap.style.display = 'block';
-                renderGanttChart();
+                applyFiltersAndRender();
             })
             .catch(err => {
                 console.error("Error loading project data:", err);
@@ -253,111 +336,84 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderTestMethods(records) {
         if (!testMethodList) return;
 
-        // Group methods by category
-        const categoryMap = {};
-        records.forEach(r => {
-            const cat = r.Category || 'General';
-            const method = r['Test Method'];
-            if (method) {
-                if (!categoryMap[cat]) {
-                    categoryMap[cat] = new Set();
-                }
-                categoryMap[cat].add(method);
-            }
-        });
-
         testMethodList.innerHTML = '';
         testMethodList.style.display = 'block';
 
-        const sortedCategories = Object.keys(categoryMap).sort();
+        const uniqueMethods = new Set();
+        records.forEach(r => {
+            if (r['Test Method']) {
+                uniqueMethods.add(r['Test Method']);
+            }
+        });
 
-        if (sortedCategories.length === 0) {
+        const sortedMethods = Array.from(uniqueMethods).sort();
+
+        if (sortedMethods.length === 0) {
             testMethodList.innerHTML = '<div style="color: #9ca3af; font-style: italic;">No active test methods</div>';
             return;
         }
 
-        sortedCategories.forEach(cat => {
-            // Cluster container
-            const cluster = document.createElement('div');
-            cluster.className = 'category-cluster';
-            cluster.style.marginBottom = '16px';
+        const chipsWrap = document.createElement('div');
+        chipsWrap.className = 'flat-chips-wrap';
+        chipsWrap.style.display = 'flex';
+        chipsWrap.style.flexWrap = 'wrap';
+        chipsWrap.style.gap = '8px 12px';
 
-            // Cluster header
-            const header = document.createElement('div');
-            header.className = 'category-cluster-header';
-            header.textContent = cat;
-            header.style.fontSize = '11px';
-            header.style.color = '#888';
-            header.style.fontWeight = '700';
-            header.style.textTransform = 'uppercase';
-            header.style.letterSpacing = '0.05em';
-            header.style.marginBottom = '6px';
-            header.style.borderBottom = '1px solid rgba(255, 255, 255, 0.05)';
-            header.style.paddingBottom = '4px';
-            cluster.appendChild(header);
+        sortedMethods.forEach(method => {
+            const item = document.createElement('div');
+            item.textContent = method;
+            item.className = 'test-method-chip';
+            if (selectedTestMethods.has(method)) {
+                item.classList.add('active');
+            }
 
-            // Chips container
-            const chipsWrap = document.createElement('div');
-            chipsWrap.className = 'category-cluster-chips';
-            chipsWrap.style.display = 'flex';
-            chipsWrap.style.flexWrap = 'wrap';
-            chipsWrap.style.gap = '8px 12px';
-
-            // Sort and render chips
-            const methods = Array.from(categoryMap[cat]).sort();
-            methods.forEach(method => {
-                const item = document.createElement('div');
-                item.textContent = method;
-                item.className = 'test-method-chip';
+            item.addEventListener('click', () => {
                 if (selectedTestMethods.has(method)) {
-                    item.classList.add('active');
+                    selectedTestMethods.delete(method);
+                } else {
+                    selectedTestMethods.add(method);
                 }
 
-                item.addEventListener('click', () => {
-                    if (selectedTestMethods.has(method)) {
-                        selectedTestMethods.delete(method);
-                    } else {
-                        selectedTestMethods.add(method);
-                    }
-
-                    if (selectedTestMethods.size === 0) {
-                        currentTestMethod = 'all';
-                        if (testMethodSelect) testMethodSelect.value = 'all';
-                    } else if (selectedTestMethods.size === 1) {
-                        currentTestMethod = Array.from(selectedTestMethods)[0];
-                        if (testMethodSelect) testMethodSelect.value = currentTestMethod;
-                    } else {
-                        currentTestMethod = 'multiple';
-                        if (testMethodSelect) {
-                            let multOpt = testMethodSelect.querySelector('option[value="multiple"]');
-                            if (!multOpt) {
-                                multOpt = document.createElement('option');
-                                multOpt.value = 'multiple';
-                                multOpt.textContent = 'Multiple Selected';
-                                testMethodSelect.appendChild(multOpt);
-                            }
-                            testMethodSelect.value = 'multiple';
+                if (selectedTestMethods.size === 0) {
+                    currentTestMethod = 'all';
+                    if (testMethodSelect) testMethodSelect.value = 'all';
+                } else if (selectedTestMethods.size === 1) {
+                    currentTestMethod = Array.from(selectedTestMethods)[0];
+                    if (testMethodSelect) testMethodSelect.value = currentTestMethod;
+                } else {
+                    currentTestMethod = 'multiple';
+                    if (testMethodSelect) {
+                        let multOpt = testMethodSelect.querySelector('option[value="multiple"]');
+                        if (!multOpt) {
+                            multOpt = document.createElement('option');
+                            multOpt.value = 'multiple';
+                            multOpt.textContent = 'Multiple Selected';
+                            testMethodSelect.appendChild(multOpt);
                         }
+                        testMethodSelect.value = 'multiple';
                     }
+                }
 
-                    const chips = testMethodList.querySelectorAll('.test-method-chip');
-                    chips.forEach(chip => {
-                        const name = chip.textContent;
-                        if (selectedTestMethods.has(name)) {
-                            chip.classList.add('active');
-                        } else {
-                            chip.classList.remove('active');
-                        }
-                    });
-
-                    renderGanttChart();
-                });
-
-                chipsWrap.appendChild(item);
+                updateChipActiveStates();
+                renderGanttChart();
             });
 
-            cluster.appendChild(chipsWrap);
-            testMethodList.appendChild(cluster);
+            chipsWrap.appendChild(item);
+        });
+
+        testMethodList.appendChild(chipsWrap);
+    }
+
+    function updateChipActiveStates() {
+        if (!testMethodList) return;
+        const chips = testMethodList.querySelectorAll('.test-method-chip');
+        chips.forEach(chip => {
+            const name = chip.textContent;
+            if (selectedTestMethods.has(name)) {
+                chip.classList.add('active');
+            } else {
+                chip.classList.remove('active');
+            }
         });
     }
 
@@ -390,23 +446,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (r.Category) categories.add(r.Category);
         });
 
-        // Store selected value if possible
-        const prevVal = categorySelect.value;
-        categorySelect.innerHTML = '<option value="all">All Categories</option>';
-        categories.forEach(cat => {
-            const option = document.createElement('option');
-            option.value = cat;
-            option.textContent = cat;
-            categorySelect.appendChild(option);
-        });
+        const prevVal = categorySelect ? categorySelect.value : 'all';
+        if (categorySelect) {
+            categorySelect.innerHTML = '<option value="all">All Categories</option>';
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = cat;
+                categorySelect.appendChild(option);
+            });
 
-        // Restore value if still exists
-        if (categories.has(prevVal)) {
-            categorySelect.value = prevVal;
-            currentCategory = prevVal;
-        } else {
-            categorySelect.value = 'all';
-            currentCategory = 'all';
+            if (categories.has(prevVal)) {
+                categorySelect.value = prevVal;
+                currentCategory = prevVal;
+            } else {
+                categorySelect.value = 'all';
+                currentCategory = 'all';
+            }
         }
     }
 
@@ -445,10 +501,23 @@ document.addEventListener('DOMContentLoaded', () => {
             clearTimeout(renderTimeout);
         }
 
-        // 1. Filter records by Category and selected Test Methods
+        // 1. Filter records by Laboratory, Category and selected Test Methods
         let filteredRecords = rawRecords;
+
+        if (currentLaboratory !== 'all') {
+            const allowedNums = new Set((labTestNumbersMap[currentLaboratory] || []).map(x => String(x).trim()));
+            const allowedMethods = new Set((labTestMethodsMap[currentLaboratory] || []).map(x => String(x).trim()));
+
+            filteredRecords = filteredRecords.filter(r => {
+                const numMatch = r['Test Number'] && allowedNums.has(String(r['Test Number']).trim());
+                const methodMatch = r['Test Method'] && allowedMethods.has(String(r['Test Method']).trim());
+                const catMatch = r['Category'] && String(r['Category']).trim().toLowerCase() === currentLaboratory.toLowerCase();
+                return numMatch || methodMatch || catMatch;
+            });
+        }
+
         if (currentCategory !== 'all') {
-            filteredRecords = rawRecords.filter(r => r.Category === currentCategory);
+            filteredRecords = filteredRecords.filter(r => r.Category === currentCategory);
         }
         if (selectedTestMethods.size > 0) {
             filteredRecords = filteredRecords.filter(r => selectedTestMethods.has(r['Test Method']));
@@ -676,8 +745,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                     year: 'yyyy'
                                 }
                             },
-                            min: new Date(minDate.getTime() - 7 * 24 * 60 * 60 * 1000),
-                            max: new Date(maxDate.getTime() + 7 * 24 * 60 * 60 * 1000),
+                            min: spanStart ? new Date(spanStart + 'T00:00:00') : new Date(minDate.getTime() - 7 * 24 * 60 * 60 * 1000),
+                            max: spanEnd ? new Date(spanEnd + 'T00:00:00') : new Date(maxDate.getTime() + 7 * 24 * 60 * 60 * 1000),
                             grid: {
                                 color: 'rgba(255, 255, 255, 0.08)'
                             },

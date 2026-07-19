@@ -11,205 +11,124 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
             color: #0f172a;
             background: #ffffff;
-            font-size: 11px;
-            line-height: 1.5;
+            font-size: 10px;
+            line-height: 1.4;
         }
 
         /* ===== PAGE LAYOUT ===== */
         @page {
             size: letter portrait;
-            margin: 14mm 14mm 14mm 14mm;
+            margin: 10mm 12mm 10mm 12mm;
         }
         .page { padding: 0; margin: 0; }
-        .page-break {
-            page-break-after: always;
-            break-after: page;
-            padding-bottom: 8px;
-        }
         .avoid-break { page-break-inside: avoid; break-inside: avoid; }
+        .section-block { margin-bottom: 12px; page-break-inside: avoid; break-inside: avoid; }
 
         /* ===== TYPOGRAPHY ===== */
-        h1 { font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; }
-        h2 { font-size: 14px; font-weight: 700; color: #0f172a; }
-        h3 { font-size: 11px; font-weight: 700; color: #475569; }
-        p  { font-size: 10px; color: #64748b; }
-        .text-xs  { font-size: 9px; }
-        .text-sm  { font-size: 10px; }
-        .text-base{ font-size: 11px; }
-        .text-lg  { font-size: 13px; }
-        .text-xl  { font-size: 16px; }
-        .font-bold { font-weight: 700; }
-        .font-semibold { font-weight: 600; }
-        .font-medium { font-weight: 500; }
-        .italic { font-style: italic; }
-        .uppercase { text-transform: uppercase; }
-        .tracking-wide { letter-spacing: 0.5px; }
-        .leading-tight { line-height: 1.3; }
+        h1 { font-size: 17px; font-weight: 800; color: #0f172a; letter-spacing: -0.4px; }
+        h2 { font-size: 12px; font-weight: 700; color: #0f172a; }
+        h3 { font-size: 9.5px; font-weight: 700; color: #475569; }
+        p  { font-size: 9px; color: #64748b; }
         .truncate { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-
-        /* ===== COLORS ===== */
-        .text-slate-900 { color: #0f172a; }
-        .text-slate-700 { color: #334155; }
-        .text-slate-600 { color: #475569; }
-        .text-slate-500 { color: #64748b; }
-        .text-slate-400 { color: #94a3b8; }
-        .text-rose-600  { color: #e11d48; }
-        .text-rose-700  { color: #be123c; }
-        .text-amber-600 { color: #d97706; }
-        .text-sky-600   { color: #0284c7; }
-        .text-white     { color: #ffffff; }
-
-        /* ===== BACKGROUNDS ===== */
-        .bg-white      { background: #ffffff; }
-        .bg-slate-900  { background: #0f172a; }
-        .bg-slate-50   { background: #f8fafc; }
-        .bg-slate-100  { background: #f1f5f9; }
-        .bg-rose-50    { background: #fff1f2; }
-
-        /* ===== BORDERS ===== */
-        .border         { border: 1px solid #e2e8f0; }
-        .border-b       { border-bottom: 1px solid #e2e8f0; }
-        .border-b-2     { border-bottom: 2px solid #e2e8f0; }
-        .border-l-4     { border-left: 4px solid #0284c7; }
-        .border-sky-600 { border-color: #0284c7; }
-        .border-slate-800 { border-color: #1e293b; }
-        .border-rose-600  { border-color: #e11d48; }
-        .rounded        { border-radius: 4px; }
-        .rounded-lg     { border-radius: 8px; }
-        .shadow-sm      { box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-        .overflow-hidden { overflow: hidden; }
-
-        /* ===== SPACING ===== */
-        .p-2  { padding: 6px; }
-        .p-3  { padding: 10px; }
-        .p-4  { padding: 14px; }
-        .px-1 { padding-left: 3px; padding-right: 3px; }
-        .px-3 { padding-left: 10px; padding-right: 10px; }
-        .px-4 { padding-left: 14px; padding-right: 14px; }
-        .py-1 { padding-top: 3px; padding-bottom: 3px; }
-        .py-2 { padding-top: 6px; padding-bottom: 6px; }
-        .py-3 { padding-top: 10px; padding-bottom: 10px; }
-        .py-8 { padding-top: 28px; padding-bottom: 28px; }
-        .pb-2 { padding-bottom: 6px; }
-        .pb-4 { padding-bottom: 14px; }
-        .pt-2 { padding-top: 6px; }
-        .pr-4 { padding-right: 14px; }
-        .mb-1 { margin-bottom: 3px; }
-        .mb-2 { margin-bottom: 6px; }
-        .mb-4 { margin-bottom: 14px; }
-        .mb-6 { margin-bottom: 20px; }
-        .mb-8 { margin-bottom: 28px; }
-        .mt-1 { margin-top: 3px; }
-        .mt-4 { margin-top: 14px; }
-        .gap-4 { gap: 14px; }
-        .gap-6 { gap: 20px; }
-
-        /* ===== FLEXBOX & GRID ===== */
-        .flex   { display: flex; }
-        .grid   { display: grid; }
-        .items-center   { align-items: center; }
-        .items-stretch  { align-items: stretch; }
-        .items-end      { align-items: flex-end; }
-        .justify-between { justify-content: space-between; }
-        .flex-col       { flex-direction: column; }
-        .w-full         { width: 100%; }
-        .min-w-full     { min-width: 100%; }
-        .w-1\/3 { width: 33.33%; }
-        .w-2\/3 { width: 66.67%; }
-        .relative { position: relative; }
-        .absolute { position: absolute; }
-        .inset-0  { top: 0; left: 0; right: 0; bottom: 0; }
-        .pointer-events-none { pointer-events: none; }
-        .h-full   { height: 100%; }
 
         /* ===== TABLES ===== */
         table   { width: 100%; border-collapse: collapse; }
-        th, td  { text-align: left; vertical-align: middle; padding: 6px 10px; font-size: 10px; }
+        th, td  { text-align: left; vertical-align: middle; padding: 5px 8px; font-size: 9px; }
         thead   { background: #0f172a; color: #fff; }
-        thead th { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 10px; }
+        thead th { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 8px; }
         tbody tr:nth-child(even) { background: #f8fafc; }
         tbody tr:nth-child(odd)  { background: #ffffff; }
         td.center { text-align: center; }
-        tr.guide-row { border-bottom: 2px solid #94a3b8; }
+
+        /* ===== BORDERS ===== */
+        .border         { border: 1px solid #e2e8f0; }
+        .rounded        { border-radius: 4px; }
+        .shadow-sm      { box-shadow: 0 1px 2px rgba(0,0,0,.05); }
 
         /* ===== KPI CARDS ===== */
-        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
-        .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; }
-        .kpi-label { font-size: 8px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.6px; display: block; margin-bottom: 4px; }
-        .kpi-value { font-size: 18px; font-weight: 800; color: #0f172a; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; }
+        .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; }
+        .kpi-label { font-size: 7.5px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 2px; }
+        .kpi-value { font-size: 14px; font-weight: 800; color: #0f172a; }
         .kpi-value.danger { color: #e11d48; }
         .kpi-value.warn   { color: #d97706; }
-        .kpi-value.name   { font-size: 13px; }
+        .kpi-value.name   { font-size: 11px; }
+
+        /* ===== SUMMARY GRID ===== */
+        .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+        .summary-grid.full-width { grid-template-columns: 1fr; }
 
         /* ===== SECTION HEADER ===== */
         .section-header {
             border-bottom: 2px solid #0284c7;
-            padding-bottom: 5px;
-            margin-bottom: 12px;
+            padding-bottom: 4px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
         }
-        .section-header h2 { font-size: 13px; }
+        .section-header h2 { font-size: 12px; }
         .section-header.dark { border-bottom-color: #1e293b; }
         .section-header.danger { border-bottom-color: #e11d48; }
 
         /* ===== PAGE TITLE ===== */
-        .report-title-block { border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 20px; }
+        .report-title-block { border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-end; }
 
         /* ===== COMMENT BOX ===== */
         .comment-box {
             background: #f8fafc;
-            border-left: 4px solid #0284c7;
-            padding: 12px 14px;
+            border-left: 3px solid #0284c7;
+            padding: 8px 10px;
             border-radius: 4px;
-            margin-top: 16px;
+            margin-bottom: 12px;
         }
 
         /* ===== GANTT ===== */
-        .gantt-container { border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
-        .gantt-header { display: flex; background: #0f172a; color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; align-items: stretch; }
-        .gantt-header .col-label { width: 32%; padding: 12px 14px; display: flex; align-items: center; flex-shrink: 0; }
-        .gantt-header .col-timeline { flex: 1; display: flex; align-items: center; padding: 6px 14px; border-left: 1px solid rgba(255,255,255,0.15); }
-        .gantt-row { display: flex; align-items: stretch; min-height: 42px; border-bottom: 1px solid #f1f5f9; }
+        .gantt-container { border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; margin-bottom: 6px; }
+        .gantt-header { display: flex; background: #0f172a; color: #fff; font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; align-items: stretch; }
+        .gantt-header .col-label { width: 30%; padding: 8px 10px; display: flex; align-items: center; flex-shrink: 0; }
+        .gantt-header .col-timeline { flex: 1; display: flex; align-items: center; padding: 4px 10px; border-left: 1px solid rgba(255,255,255,0.15); }
+        .gantt-row { display: flex; align-items: stretch; min-height: 34px; border-bottom: 1px solid #f1f5f9; page-break-inside: avoid; break-inside: avoid; }
         .gantt-row:last-child { border-bottom: none; }
         .gantt-row:nth-child(even) { background: #f8fafc; }
-        .gantt-meta { width: 32%; padding: 6px 14px; display: flex; flex-direction: column; justify-content: center; flex-shrink: 0; }
-        .gantt-meta .method { font-size: 10px; font-weight: 700; color: #0f172a; line-height: 1.3; }
-        .gantt-meta .sub    { font-size: 8px; color: #64748b; margin-top: 2px; }
-        .gantt-timeline { flex: 1; position: relative; display: flex; align-items: center; background: #f8fafc; border-left: 1px solid #e2e8f0; padding: 6px 14px; }
-        .gantt-grid { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(4, 1fr); pointer-events: none; }
-        .gantt-grid-line { border-right: 1px solid #e2e8f0; opacity: 0.6; }
+        .gantt-meta { width: 30%; padding: 4px 10px; display: flex; flex-direction: column; justify-content: center; flex-shrink: 0; }
+        .gantt-meta .method { font-size: 9px; font-weight: 700; color: #0f172a; line-height: 1.2; }
+        .gantt-meta .sub    { font-size: 7.5px; color: #64748b; margin-top: 1px; }
+        .gantt-timeline { flex: 1; position: relative; display: flex; align-items: center; background: #f8fafc; border-left: 1px solid #e2e8f0; padding: 4px 10px; }
         .gantt-bar {
             position: absolute;
-            height: 16px;
+            height: 14px;
             border-radius: 3px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 7px;
+            font-size: 6.5px;
             font-weight: 700;
             color: #fff;
             white-space: nowrap;
             overflow: hidden;
             border: 1px solid rgba(0,0,0,0.12);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.12);
-            padding: 0 3px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            padding: 0 2px;
         }
         .gantt-row-details {
-            padding: 4px 10px 8px 10px;
-            font-size: 7.5px;
+            padding: 3px 10px 5px 10px;
+            font-size: 7px;
             color: #64748b;
             background: #ffffff;
             border-bottom: 1px solid #f1f5f9;
+            text-align: right;
         }
-        .gantt-row-details span { display: inline-block; margin-right: 10px; }
-        .gantt-empty { padding: 20px; text-align: center; font-size: 10px; color: #94a3b8; }
-        .gantt-legend { display: flex; align-items: center; gap: 14px; padding: 8px 12px; background: #f8fafc; border: 1px solid #f1f5f9; border-radius: 6px; margin-top: 10px; }
-        .gantt-legend-label { font-size: 8px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
-        .legend-item { display: flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 600; color: #334155; }
-        .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+        .gantt-row-details span { display: inline-block; margin-right: 8px; }
+        .gantt-empty { padding: 14px; text-align: center; font-size: 9px; color: #94a3b8; }
+        .gantt-legend { display: flex; align-items: center; gap: 12px; padding: 6px 10px; background: #f8fafc; border: 1px solid #f1f5f9; border-radius: 4px; margin-top: 6px; margin-bottom: 12px; }
+        .gantt-legend-label { font-size: 7.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+        .legend-item { display: flex; align-items: center; gap: 4px; font-size: 8px; font-weight: 600; color: #334155; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 
         /* ===== REJECTED TABLE ===== */
-        .reject-section { margin-bottom: 18px; }
-        .reject-section h3 { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 6px; }
+        .reject-section { margin-bottom: 12px; page-break-inside: avoid; break-inside: avoid; }
+        .reject-section h3 { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 4px; }
 
         /* ===== DEFECT HIGHLIGHT ===== */
         td.defect-red { color: #e11d48; font-weight: 700; }
@@ -218,18 +137,28 @@
 </head>
 <body>
 
-<!-- ===================== PAGE 1: TITLE & EXECUTIVE SUMMARY ===================== -->
-<div class="page page-break">
+<div class="page">
+    <!-- TITLE BLOCK -->
     <div class="report-title-block">
-        <h1>{{ title }}</h1>
-        <p style="margin-top: 4px;">Compiled on {{ date }} &nbsp;|&nbsp; Excel Source: <strong>{{ excel_filename }}</strong></p>
+        <div>
+            <h1>{{ title }}</h1>
+            <p style="margin-top: 2px;">Excel Source: <strong>{{ excel_filename }}</strong></p>
+        </div>
+        <div style="text-align: right;">
+            <span style="font-size:7.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Report Date</span>
+            <p style="font-weight:600;color:#0f172a;font-size:9.5px;">{{ date }}</p>
+        </div>
     </div>
 
-    <!-- KPI Cards -->
+    <!-- KPI CARDS -->
     <div class="kpi-grid">
         <div class="kpi-card">
             <span class="kpi-label">Project Scope</span>
             <div class="kpi-value name truncate">{{ project_name }}</div>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Laboratory</span>
+            <div class="kpi-value name truncate" style="color:#0284c7;">{{ selected_laboratory or 'All Laboratories' }}</div>
         </div>
         <div class="kpi-card">
             <span class="kpi-label">Total Tasks</span>
@@ -245,232 +174,188 @@
         </div>
     </div>
 
-    <!-- Executive Summary Table -->
-    <div class="avoid-break mb-8">
-        <div class="section-header">
-            <h2>Executive Summary Dashboard</h2>
+    <!-- SUMMARY SECTION: EXECUTIVE DASHBOARD & MILESTONES -->
+    <div class="summary-grid {% if not milestones %}full-width{% endif %} avoid-break">
+        <div>
+            <div class="section-header">
+                <h2>Executive Summary Dashboard</h2>
+            </div>
+            <table class="border rounded shadow-sm">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th class="center">Tasks</th>
+                        <th class="center">Defects</th>
+                        <th class="center">Target Qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat, stats in category_summary.items() %}
+                    <tr>
+                        <td style="font-weight:600;">{{ cat }}</td>
+                        <td class="center">{{ stats.tasks_count }}</td>
+                        <td class="center {% if stats.defects_count > 0 %}defect-red{% endif %}">{{ stats.defects_count }}</td>
+                        <td class="center">{{ stats.total_qty }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-        <table class="border rounded-lg shadow-sm">
-            <thead>
-                <tr>
-                    <th>Category</th>
-                    <th class="center">Task Count</th>
-                    <th class="center">Total Defects</th>
-                    <th class="center">Total Target Qty</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for cat, stats in category_summary.items() %}
-                <tr>
-                    <td style="font-weight:600;">{{ cat }}</td>
-                    <td class="center">{{ stats.tasks_count }}</td>
-                    <td class="center {% if stats.defects_count > 0 %}defect-red{% endif %}">{{ stats.defects_count }}</td>
-                    <td class="center">{{ stats.total_qty }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
 
-    {% if milestones %}
-    <div class="avoid-break mb-8" style="margin-top: 15px;">
-        <div class="section-header">
-            <h2>Project Milestones</h2>
+        {% if milestones %}
+        <div>
+            <div class="section-header">
+                <h2>Project Milestones</h2>
+            </div>
+            <table class="border rounded shadow-sm">
+                <thead>
+                    <tr>
+                        <th>Milestone</th>
+                        <th class="center">Cutoff Wk</th>
+                        <th class="center">Cutoff Yr</th>
+                        <th class="center">Target Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ms in milestones %}
+                    <tr>
+                        <td style="font-weight:600;">{{ ms.name }}</td>
+                        <td class="center">{{ ms.week }}</td>
+                        <td class="center">{{ ms.year }}</td>
+                        <td class="center">{{ ms.date_str }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-        <table class="border rounded-lg shadow-sm">
-            <thead>
-                <tr>
-                    <th>Milestone</th>
-                    <th class="center">Cutoff Week</th>
-                    <th class="center">Cutoff Year</th>
-                    <th class="center">Target Date</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for ms in milestones %}
-                <tr>
-                    <td style="font-weight:600;">{{ ms.name }}</td>
-                    <td class="center">{{ ms.week }}</td>
-                    <td class="center">{{ ms.year }}</td>
-                    <td class="center">{{ ms.date_str }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        {% endif %}
     </div>
-    {% endif %}
 
     {% if comment %}
     <div class="comment-box avoid-break">
-        <div style="font-size:8px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Report Comment</div>
-        <p style="font-size:11px;color:#0f172a;font-style:italic;line-height:1.6;">{{ comment }}</p>
+        <div style="font-size:7.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Report Comment</div>
+        <p style="font-size:9.5px;color:#0f172a;font-style:italic;line-height:1.4;">{{ comment }}</p>
     </div>
     {% endif %}
-</div>
 
-<!-- ===================== PAGE 2+: GANTT CHART SECTION ===================== -->
-{% if timeline_chunks %}
-{% set chunk = timeline_chunks[0] %}
-<div class="page page-break">
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px;border-bottom:1px solid #e2e8f0;padding-bottom:8px;">
-        <div>
-            <h2 style="font-size:14px;font-weight:800;color:#0f172a;">Project Gantt Timeline</h2>
-            <p style="font-size:9px;margin-top:2px;">Full Timeline: {{ chunk.start_str }} &rarr; {{ chunk.end_str }}</p>
+    <!-- GANTT TIMELINE SECTION -->
+    {% if timeline_chunks %}
+    {% set chunk = timeline_chunks[0] %}
+    <div class="section-block avoid-break">
+        <div class="section-header">
+            <h2>Project Gantt Timeline</h2>
+            <p style="font-size:8px;color:#64748b;">Span: {{ chunk.start_str }} &rarr; {{ chunk.end_str }}</p>
         </div>
-        <span style="font-size:8px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Full Project View</span>
-    </div>
 
-    <div class="gantt-container">
-        <!-- Gantt Header -->
-        <div class="gantt-header">
-            <div class="col-label">Test Description</div>
-            <div class="col-timeline">
-                <div style="width:40px;text-align:center;font-weight:700;color:#fff;font-size:9px;flex-shrink:0;">#</div>
-                <div style="flex:1;display:flex;gap:0;position:relative;">
-                    {% for unit in timeline_headers %}
-                    <div style="width:{{ unit.width_pct }}%;border-right:1px solid rgba(255,255,255,0.12);padding:4px 0;font-size:8px;text-align:center;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ unit.label }}</div>
-                    {% endfor %}
-                    {% for ms in milestones %}
-                    {% if ms.left_percent >= 0 and ms.left_percent <= 100 %}
-                    <div style="position:absolute;left:{{ ms.left_percent }}%;top:0;bottom:0;pointer-events:none;">
-                        <span style="position:absolute;top:-13px;left:-14px;background:#e11d48;color:#fff;font-size:6px;font-weight:bold;padding:1px 3px;border-radius:2px;white-space:nowrap;z-index:10;box-shadow:0 1px 2px rgba(0,0,0,0.15);">{{ ms.name }}</span>
+        <div class="gantt-container">
+            <!-- Gantt Header -->
+            <div class="gantt-header">
+                <div class="col-label">Test Description</div>
+                <div class="col-timeline">
+                    <div style="width:30px;text-align:center;font-weight:700;color:#fff;font-size:8px;flex-shrink:0;">#</div>
+                    <div style="flex:1;display:flex;gap:0;position:relative;">
+                        {% for unit in timeline_headers %}
+                        <div style="width:{{ unit.width_pct }}%;border-right:1px solid rgba(255,255,255,0.12);padding:3px 0;font-size:7.5px;text-align:center;flex-shrink:0;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ unit.label }}</div>
+                        {% endfor %}
+                        {% for ms in milestones %}
+                        {% if ms.left_percent >= 0 and ms.left_percent <= 100 %}
+                        <div style="position:absolute;left:{{ ms.left_percent }}%;top:0;bottom:0;pointer-events:none;">
+                            <span style="position:absolute;top:-11px;left:-12px;background:#e11d48;color:#fff;font-size:5.5px;font-weight:bold;padding:1px 2px;border-radius:2px;white-space:nowrap;z-index:10;box-shadow:0 1px 2px rgba(0,0,0,0.15);">{{ ms.name }}</span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
                     </div>
-                    {% endif %}
-                    {% endfor %}
                 </div>
             </div>
-        </div>
 
-        {% if not chunk.rows %}
-        <div class="gantt-empty">No active timeline data available.</div>
-        {% endif %}
+            {% if not chunk.rows %}
+            <div class="gantt-empty">No active timeline data available.</div>
+            {% endif %}
 
-        {% for row in chunk.rows %}
-        <div class="gantt-row">
-            <div class="gantt-meta">
-                <div class="method">{{ row.method }}</div>
-                <div class="sub">{{ row.number }} &middot; {{ row.category }}</div>
-            </div>
-            <div class="gantt-timeline">
-                <div style="width:40px;text-align:center;color:#64748b;font-size:9px;font-weight:600;flex-shrink:0;">{{ loop.index }}</div>
-                <div style="flex:1;position:relative;height:22px;border:1px solid #e6eef8;background:#ffffff;border-radius:3px;overflow:hidden;">
-                    {% for bar in row.bars %}
-                    <div style="position:absolute;left:{{ bar.left_percent_full }}%;width:{{ bar.width_percent_full }}%;height:100%;background:{{ bar.color }};border-radius:2px;border:1px solid rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center;font-size:7px;color:#fff;font-weight:700;overflow:hidden;padding:0 4px;z-index:2;">
-                        {{ bar.phase }} {{ bar.duration_text }}
+            {% for row in chunk.rows %}
+            <div class="gantt-row">
+                <div class="gantt-meta">
+                    <div class="method">{{ row.method }}</div>
+                    <div class="sub">
+                        <strong>{{ row.number }}</strong>
+                        {% if row.laboratory and row.laboratory != 'N/A' %}
+                        &middot; <span style="font-weight:700;color:#0284c7;">Lab: {{ row.laboratory }}</span>
+                        {% endif %}
+                        &middot; {{ row.category }}
                     </div>
-                    {% endfor %}
-                    {% for ms in milestones %}
-                    {% if ms.left_percent >= 0 and ms.left_percent <= 100 %}
-                    <div style="position:absolute;left:{{ ms.left_percent }}%;top:0;bottom:0;border-left:1px dashed #e11d48;width:0;z-index:1;pointer-events:none;"></div>
-                    {% endif %}
-                    {% endfor %}
+                </div>
+                <div class="gantt-timeline">
+                    <div style="width:30px;text-align:center;color:#64748b;font-size:8.5px;font-weight:600;flex-shrink:0;">{{ loop.index }}</div>
+                    <div style="flex:1;position:relative;height:18px;border:1px solid #e6eef8;background:#ffffff;border-radius:3px;overflow:hidden;">
+                        {% for bar in row.bars %}
+                        <div style="position:absolute;left:{{ bar.left_percent_full }}%;width:{{ bar.width_percent_full }}%;height:100%;background:{{ bar.color }};border-radius:2px;border:1px solid rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center;font-size:6.5px;color:#fff;font-weight:700;overflow:hidden;padding:0 3px;z-index:2;">
+                            {{ bar.phase }} {{ bar.duration_text }}
+                        </div>
+                        {% endfor %}
+                        {% for ms in milestones %}
+                        {% if ms.left_percent >= 0 and ms.left_percent <= 100 %}
+                        <div style="position:absolute;left:{{ ms.left_percent }}%;top:0;bottom:0;border-left:1px dashed #e11d48;width:0;z-index:1;pointer-events:none;"></div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="gantt-row-details">
-            {% for bar in row.bars %}
-            <span>{{ bar.phase }} {{ bar.duration_text }} · {{ bar.start_date }} → {{ bar.end_date }} · Qty {{ bar.qty }}</span>
+            <div class="gantt-row-details">
+                {% for bar in row.bars %}
+                <span>{{ bar.phase }} {{ bar.duration_text }} · {{ bar.start_date }} → {{ bar.end_date }} · Qty {{ bar.qty }}</span>
+                {% endfor %}
+            </div>
             {% endfor %}
+        </div>
+
+        <!-- Legend -->
+        <div class="gantt-legend">
+            <span class="gantt-legend-label">Legend</span>
+            <div class="legend-item"><span class="legend-dot" style="background:#8E44AD;"></span>Proto</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#2980B9;"></span>DVT</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#27AE60;"></span>EVT</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#D35400;"></span>PVT</div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- REJECTED PRODUCTS INVENTORY SECTION -->
+    {% if rejected_records %}
+    <div class="section-block avoid-break">
+        <div class="section-header danger">
+            <h2>Rejected Products Inventory</h2>
+        </div>
+
+        {% for r_cat_name, r_list in rej_by_cat.items() %}
+        <div class="reject-section avoid-break">
+            <h3>Category: {{ r_cat_name }}</h3>
+            <table class="border shadow-sm">
+                <thead>
+                    <tr>
+                        <th style="width:28%;">Test Method</th>
+                        <th style="width:85px;">Test Number</th>
+                        <th style="width:85px;">Laboratory</th>
+                        <th style="width:55px;text-align:center;">Defect Qty</th>
+                        <th>Rejection Comments</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in r_list %}
+                    <tr>
+                        <td style="font-weight:600;color:#0f172a;">{{ r.get('Test Method', '') }}</td>
+                        <td style="color:#475569;font-family:monospace;">{{ r.get('Test Number', '') }}</td>
+                        <td style="font-weight:700;color:#0284c7;">{{ r.get('Laboratory', 'N/A') }}</td>
+                        <td class="center defect-red">{{ r.get('Defect Qty', 0) }}</td>
+                        <td class="defect-comment">{{ r.get('Comments', '') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
         {% endfor %}
     </div>
-
-    <!-- Legend -->
-    <div class="gantt-legend">
-        <span class="gantt-legend-label">Legend</span>
-        <div class="legend-item"><span class="legend-dot" style="background:#8E44AD;"></span>Proto</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#2980B9;"></span>DVT</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#27AE60;"></span>EVT</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#D35400;"></span>PVT</div>
-    </div>
+    {% endif %}
 </div>
-{% endif %}
-
-<!-- ===================== PAGE 3+: DETAILED RECORDS BY CATEGORY ===================== -->
-{#% for cat_name, cat_records in records_by_cat.items() %}
-<div class="page page-break">
-    <div class="section-header dark">
-        <h2>Test Records: {{ cat_name }}</h2>
-    </div>
-    <table class="border shadow-sm">
-        <thead>
-            <tr>
-                <th style="width:28px;text-align:center;">#</th>
-                <th style="width:32%;">Test Method</th>
-                <th style="width:80px;">Test Number</th>
-                <th style="width:55px;text-align:center;">Proto</th>
-                <th style="width:55px;text-align:center;">DVT</th>
-                <th style="width:55px;text-align:center;">EVT</th>
-                <th style="width:55px;text-align:center;">PVT</th>
-                <th style="width:42px;text-align:center;">Defect</th>
-                <th>Rejection Comment</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in cat_records %}
-            <tr {% if loop.index % 5 == 0 %}class="guide-row"{% endif %}>
-                <td style="text-align:center;color:#94a3b8;font-weight:500;">{{ loop.index }}</td>
-                <td style="font-weight:600;color:#0f172a;">{{ r.get('Test Method', '') }}</td>
-                <td style="color:#475569;">{{ r.get('Test Number', '') }}</td>
-                <td style="text-align:center;{% if (r.get('Proto Weeks',0)|int > 0) or (r.get('Proto Days',0)|int > 0) %}background:#F3E5F5;{% endif %}font-size:9px;">
-                    {% set pw = r.get('Proto Weeks',0)|int %}{% set pd = r.get('Proto Days',0)|int %}
-                    {% if pw > 0 or pd > 0 %}{{ pw }}w{% if pd > 0 %} {{ pd }}d{% endif %}<br><span style="color:#64748b;">Q:{{ r.get('Proto Qty',0) }}</span>{% else %}&mdash;{% endif %}
-                </td>
-                <td style="text-align:center;{% if (r.get('DVT Weeks',0)|int > 0) or (r.get('DVT Days',0)|int > 0) %}background:#E1F5FE;{% endif %}font-size:9px;">
-                    {% set dw = r.get('DVT Weeks',0)|int %}{% set dd = r.get('DVT Days',0)|int %}
-                    {% if dw > 0 or dd > 0 %}{{ dw }}w{% if dd > 0 %} {{ dd }}d{% endif %}<br><span style="color:#64748b;">Q:{{ r.get('DVT Qty',0) }}</span>{% else %}&mdash;{% endif %}
-                </td>
-                <td style="text-align:center;{% if (r.get('EVT Weeks',0)|int > 0) or (r.get('EVT Days',0)|int > 0) %}background:#E8F5E9;{% endif %}font-size:9px;">
-                    {% set ew = r.get('EVT Weeks',0)|int %}{% set ed = r.get('EVT Days',0)|int %}
-                    {% if ew > 0 or ed > 0 %}{{ ew }}w{% if ed > 0 %} {{ ed }}d{% endif %}<br><span style="color:#64748b;">Q:{{ r.get('EVT Qty',0) }}</span>{% else %}&mdash;{% endif %}
-                </td>
-                <td style="text-align:center;{% if (r.get('PVT Weeks',0)|int > 0) or (r.get('PVT Days',0)|int > 0) %}background:#FFE0B2;{% endif %}font-size:9px;">
-                    {% set pvw = r.get('PVT Weeks',0)|int %}{% set pvd = r.get('PVT Days',0)|int %}
-                    {% if pvw > 0 or pvd > 0 %}{{ pvw }}w{% if pvd > 0 %} {{ pvd }}d{% endif %}<br><span style="color:#64748b;">Q:{{ r.get('PVT Qty',0) }}</span>{% else %}&mdash;{% endif %}
-                </td>
-                <td class="center {% if r.get('Defect Qty',0)|int > 0 %}defect-red{% endif %}">{{ r.get('Defect Qty', 0) }}</td>
-                <td class="{% if r.get('Comments','') %}defect-comment{% endif %}" style="font-size:9px;">{{ r.get('Comments', '') or '&mdash;' }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% endfor %#}
-
-<!-- ===================== PAGE N: REJECTED PRODUCTS INVENTORY ===================== -->
-{% if rejected_records %}
-<div class="page">
-    <div class="section-header danger">
-        <h2>Rejected Products Inventory</h2>
-    </div>
-
-    {% for r_cat_name, r_list in rej_by_cat.items() %}
-    <div class="reject-section avoid-break">
-        <h3>Category: {{ r_cat_name }}</h3>
-        <table class="border shadow-sm">
-            <thead>
-                <tr>
-                    <th style="width:35%;">Test Method</th>
-                    <th style="width:90px;">Test Number</th>
-                    <th style="width:70px;text-align:center;">Defect Qty</th>
-                    <th>Rejection Comments</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in r_list %}
-                <tr>
-                    <td style="font-weight:600;color:#0f172a;">{{ r.get('Test Method', '') }}</td>
-                    <td style="color:#475569;">{{ r.get('Test Number', '') }}</td>
-                    <td class="center defect-red">{{ r.get('Defect Qty', 0) }}</td>
-                    <td class="defect-comment">{{ r.get('Comments', '') }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% endfor %}
-</div>
-{% endif %}
 
 </body>
 </html>

@@ -93,7 +93,7 @@ function getActiveProjectContext() {
 }
 
 // Project PDF download with progress modal
-function triggerPdfDownload(projectName, categoryFilter, scaleFilter, testMethodFilter) {
+function triggerPdfDownload(projectName, categoryFilter, scaleFilter, testMethodFilter, customStartDate, laboratoryFilter, spanStart, spanEnd) {
     const modal   = document.getElementById('export-progress-modal');
     const bar     = document.getElementById('export-progress-bar');
     const msg     = document.getElementById('export-progress-message');
@@ -149,9 +149,13 @@ function triggerPdfDownload(projectName, categoryFilter, scaleFilter, testMethod
         body: JSON.stringify({ 
             project: projectName, 
             comment: sessionStorage.getItem('pdf_comment_' + projectName) || '', 
+            laboratory: laboratoryFilter,
             category: categoryFilter, 
             scale: scaleFilter,
-            test_method: testMethodFilter
+            test_method: testMethodFilter,
+            custom_start_date: customStartDate,
+            span_start: spanStart || '',
+            span_end: spanEnd || ''
         })
     })
     .then(r => { if (!r.ok) throw new Error('Failed to start PDF export task'); return r.json(); })
@@ -164,7 +168,7 @@ function triggerPdfDownload(projectName, categoryFilter, scaleFilter, testMethod
 }
 
 // Consolidated PDF (all projects)
-function triggerConsolidatedPdfDownload(categoryFilter, scaleFilter, testMethodFilter) {
+function triggerConsolidatedPdfDownload(categoryFilter, scaleFilter, testMethodFilter, customStartDate, laboratoryFilter, spanStart, spanEnd) {
     const modal = document.getElementById('export-progress-modal');
     const bar     = document.getElementById('export-progress-bar');
     const msg     = document.getElementById('export-progress-message');
@@ -212,7 +216,15 @@ function triggerConsolidatedPdfDownload(categoryFilter, scaleFilter, testMethodF
     fetch('/api/export-consolidated/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: categoryFilter, scale: scaleFilter, test_method: testMethodFilter })
+        body: JSON.stringify({ 
+            laboratory: laboratoryFilter,
+            category: categoryFilter, 
+            scale: scaleFilter, 
+            test_method: testMethodFilter,
+            custom_start_date: customStartDate,
+            span_start: spanStart || '',
+            span_end: spanEnd || ''
+        })
     })
         .then(r => { if (!r.ok) throw new Error('Failed to start export'); return r.json(); })
         .then(data => poll(data.task_id))
@@ -224,3 +236,4 @@ function triggerConsolidatedPdfDownload(categoryFilter, scaleFilter, testMethodF
 
 // Expose to window for chatbot module
 window.triggerPdfDownload = triggerPdfDownload;
+window.triggerConsolidatedPdfDownload = triggerConsolidatedPdfDownload;

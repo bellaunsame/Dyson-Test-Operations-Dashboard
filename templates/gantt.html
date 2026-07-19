@@ -117,53 +117,65 @@
 
 {% block content %}
 <div class="gantt-page">
-  <div class="gantt-header">
+  <div class="gantt-header" style="margin-bottom: 16px;">
     <div>
       <h2 style="margin:0">Project Gantt</h2>
-      <!--
-      <div class="gantt-instructions">Select a project to render a clear, readable timeline. Use the export button to download a PDF report.</div>
-      -->
     </div>
-    <div class="gantt-controls">
-      <div class="ctrl-group">
-        <span class="ctrl-label">Project</span>
-        <select id="gantt-project-select" class="ctrl-select">
-          <option value="">— Select a project —</option>
-        </select>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button id="btn-submit-comment" class="export-btn" style="pointer-events:none;opacity:0.5;cursor:pointer;">Export PDF</button>
+      <button id="btn-email-modal-trigger" class="btn btn-accent" type="button">Send Email</button>
+    </div>
+  </div>
+
+  <div class="gantt-controls">
+    <div class="ctrl-group">
+      <span class="ctrl-label">Project</span>
+      <select id="gantt-project-select" class="ctrl-select">
+        <option value="">— Select a project —</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">Laboratory</span>
+      <select id="gantt-laboratory-select" class="ctrl-select">
+        <option value="all">All Laboratories</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">Category</span>
+      <select id="gantt-category-select" class="ctrl-select">
+        <option value="all">All Categories</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">Test Method</span>
+      <select id="gantt-testmethod-select" class="ctrl-select">
+        <option value="all">All Test Methods</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">Custom Start Date</span>
+      <input type="date" id="gantt-start-date" class="ctrl-select" style="min-width: 140px; color: #fff;">
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">Scale</span>
+      <div class="scale-group">
+        <button type="button" class="scale-btn active" data-scale="week">Week</button>
+        <button type="button" class="scale-btn" data-scale="day">Day</button>
+        <button type="button" class="scale-btn" data-scale="month">Month</button>
+        <button type="button" class="scale-btn" data-scale="year">Year</button>
       </div>
-      <div class="ctrl-group">
-        <span class="ctrl-label">Category</span>
-        <select id="gantt-category-select" class="ctrl-select">
-          <option value="all">All Categories</option>
-        </select>
-      </div>
-      <div class="ctrl-group">
-        <span class="ctrl-label">Test Method</span>
-        <select id="gantt-testmethod-select" class="ctrl-select">
-          <option value="all">All Test Methods</option>
-        </select>
-      </div>
-      <div class="ctrl-group">
-        <span class="ctrl-label">Custom Start Date</span>
-        <input type="date" id="gantt-start-date" class="ctrl-select" style="min-width: 140px; color: #fff;">
-      </div>
-      <div class="ctrl-group">
-        <span class="ctrl-label">Scale</span>
-        <div class="scale-group">
-          <button type="button" class="scale-btn active" data-scale="week">Week</button>
-          <button type="button" class="scale-btn" data-scale="day">Day</button>
-          <button type="button" class="scale-btn" data-scale="month">Month</button>
-          <button type="button" class="scale-btn" data-scale="year">Year</button>
-        </div>
-      </div>
-      <div class="ctrl-group" style="flex:1 1 320px;">
-        <span class="ctrl-label">Optional PDF Comment</span>
-        <textarea id="pdf-comment" placeholder="Add a note to include in the exported PDF"></textarea>
-      </div>
-      <div class="ctrl-group" style="align-self:flex-end; display:flex; flex-direction:column; gap:10px;">
-        <button id="btn-submit-comment" class="export-btn" style="pointer-events:none;opacity:0.5;cursor:pointer;">Export PDF</button>
-        <button id="btn-email-modal-trigger" class="btn btn-accent" type="button" style="width:100%;">Send Email</button>
-      </div>
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">Span Start</span>
+      <input type="date" id="gantt-span-start" class="ctrl-select" style="min-width: 140px; color: #fff;">
+    </div>
+    <div class="ctrl-group">
+      <span class="ctrl-label">Span End</span>
+      <input type="date" id="gantt-span-end" class="ctrl-select" style="min-width: 140px; color: #fff;">
+    </div>
+    <div class="ctrl-group" style="flex:1 1 320px;">
+      <span class="ctrl-label">Optional PDF Comment</span>
+      <textarea id="pdf-comment" placeholder="Add a note to include in the exported PDF"></textarea>
     </div>
   </div>
 
