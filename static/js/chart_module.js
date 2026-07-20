@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const laboratorySelect = document.getElementById('gantt-laboratory-select');
     const categorySelect = document.getElementById('gantt-category-select');
     const testMethodSelect = document.getElementById('gantt-testmethod-select');
+    const laboratorySelect = document.getElementById('gantt-laboratory-select');
     const scaleButtons = document.querySelectorAll('.scale-btn');
     const btnSubmitComment = document.getElementById('btn-submit-comment');
     const pdfComment = document.getElementById('pdf-comment');
@@ -26,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentProjectName = '';
     let currentLaboratory = 'all';
     let currentCategory = 'all';
+    let currentLaboratory = 'all';
     let currentTestMethod = 'all';
     let selectedTestMethods = new Set();
     let customStartDate = '';
@@ -44,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Fetch master data laboratories and projects list
         fetchMasterDataLaboratories();
         fetchProjects();
+        loadLaboratories();
 
         // Project change handler
         projectSelect.addEventListener('change', (e) => {
@@ -136,6 +139,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        if (laboratorySelect) {
+            laboratorySelect.addEventListener('change', (e) => {
+                currentLaboratory = e.target.value;
+                renderGanttChart();
+            });
+        }
+
         if (testMethodSelect) {
             testMethodSelect.addEventListener('change', (e) => {
                 currentTestMethod = e.target.value;
@@ -205,6 +215,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
+    }
+
+    function loadLaboratories() {
+        fetch('/api/laboratories')
+            .then(res => res.json())
+            .then(labs => {
+                if (!laboratorySelect) return;
+
+                laboratorySelect.innerHTML =
+                    '<option value="all">All Laboratories</option>';
+
+                labs.forEach(lab => {
+                    const option = document.createElement('option');
+                    option.value = lab;
+                    option.textContent = lab;
+                    laboratorySelect.appendChild(option);
+                });
+            })
+            .catch(err => {
+                console.error(
+                    'Failed to load laboratories:',
+                    err
+                );
+            });
     }
 
     // Fetch active projects to populate the select dropdown
@@ -519,7 +553,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (currentCategory !== 'all') {
-            filteredRecords = filteredRecords.filter(r => r.Category === currentCategory);
+            filteredRecords = rawRecords.filter(r => r.Category === currentCategory);
         }
         if (selectedTestMethods.size > 0) {
             filteredRecords = filteredRecords.filter(r => selectedTestMethods.has(r['Test Method']));

@@ -636,6 +636,33 @@ class ExcelDataStore:
         except Exception as e:
             print(f"Error deleting project: {e}")
             return False
+    
+    @staticmethod
+    def get_laboratories():
+        try:
+            excel_file = EXCEL_PATH
+
+            if not os.path.exists(excel_file):
+                excel_file = TEMPLATE_PATH
+
+            if not os.path.exists(excel_file):
+                return []
+
+            df = pd.read_excel(excel_file, sheet_name="Master_Data")
+
+            df.columns = df.columns.str.strip()
+
+            return sorted(
+                df["Laboratory"]
+                .dropna()
+                .astype(str)
+                .unique()
+                .tolist()
+            )
+
+        except Exception as e:
+            print(f"Laboratory Error: {e}")
+            return []
 
 
 # --- DECORATORS / HELPER FUNCTIONS ---
@@ -702,7 +729,13 @@ def project_detail(project_name):
     return render_template('project_detail.html', project={"name": project_name}, username=session.get('username'), active_page='tables')
 
 # --- API ENDPOINTS ---
+@app.route('/api/laboratories')
+@login_required
+def api_laboratories():
 
+    return jsonify(
+        ExcelDataStore.get_laboratories()
+    )
 @app.route('/api/projects', methods=['GET', 'POST'])
 @login_required
 def api_projects():
