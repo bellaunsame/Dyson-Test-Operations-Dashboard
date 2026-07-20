@@ -36,9 +36,12 @@ EMAIL_ATTACHMENT_MAX_MB = int(os.getenv('EMAIL_ATTACHMENT_MAX_MB', 18))
 
 # Initialize Excel file by copying template if it doesn't exist
 TEMPLATE_PATH = os.path.join(app.root_path, 'templates', 'SystemBoard.xlsx')
-if not os.path.exists(EXCEL_PATH) and os.path.exists(TEMPLATE_PATH):
-    import shutil
-    shutil.copy(TEMPLATE_PATH, EXCEL_PATH)
+FALLBACK_TEMPLATE = os.path.join(UPLOAD_FOLDER, 'SystemBoard (1).xlsx')
+if not os.path.exists(EXCEL_PATH):
+    src_template = TEMPLATE_PATH if os.path.exists(TEMPLATE_PATH) else (FALLBACK_TEMPLATE if os.path.exists(FALLBACK_TEMPLATE) else None)
+    if src_template:
+        import shutil
+        shutil.copy(src_template, EXCEL_PATH)
 
 # User authentication credentials
 USER_CREDENTIALS = {
@@ -424,6 +427,7 @@ class ExcelDataStore:
                     "id": index,  # Use row index as unique ID
                     "Project Name": project_name,
                     "Category": get_val("category", "General"),
+                    "Laboratory": get_val("laboratory", ""),
                     "Test Method": get_val("test_method", "Testing"),
                     "Test Number": get_val("test_number", "TM-000"),
                     "Start Date": start_date_val,

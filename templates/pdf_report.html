@@ -88,6 +88,17 @@
         .gantt-header { display: flex; background: #0f172a; color: #fff; font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; align-items: stretch; }
         .gantt-header .col-label { width: 30%; padding: 8px 10px; display: flex; align-items: center; flex-shrink: 0; }
         .gantt-header .col-timeline { flex: 1; display: flex; align-items: center; padding: 4px 10px; border-left: 1px solid rgba(255,255,255,0.15); }
+        .th-unit {
+            border-right: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 3px 0;
+            font-size: 7.5px;
+            text-align: center;
+            flex-shrink: 0;
+            box-sizing: border-box;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .gantt-row { display: flex; align-items: stretch; min-height: 34px; border-bottom: 1px solid #f1f5f9; page-break-inside: avoid; break-inside: avoid; }
         .gantt-row:last-child { border-bottom: none; }
         .gantt-row:nth-child(even) { background: #f8fafc; }
@@ -255,7 +266,7 @@
                     <div style="width:30px;text-align:center;font-weight:700;color:#fff;font-size:8px;flex-shrink:0;">#</div>
                     <div style="flex:1;display:flex;gap:0;position:relative;">
                         {% for unit in timeline_headers %}
-                        <div style="width:{{ unit.width_pct }}%;border-right:1px solid rgba(255,255,255,0.12);padding:3px 0;font-size:7.5px;text-align:center;flex-shrink:0;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ unit.label }}</div>
+                        <div class="th-unit" style="width: {{ unit.width_pct }}%;">{{ unit.label }}</div>
                         {% endfor %}
                         {% for ms in milestones %}
                         {% if ms.left_percent >= 0 and ms.left_percent <= 100 %}

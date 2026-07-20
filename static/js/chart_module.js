@@ -278,7 +278,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const numMatch = r['Test Number'] && allowedNums.has(String(r['Test Number']).trim());
                 const methodMatch = r['Test Method'] && allowedMethods.has(String(r['Test Method']).trim());
                 const catMatch = r['Category'] && String(r['Category']).trim().toLowerCase() === currentLaboratory.toLowerCase();
-                return numMatch || methodMatch || catMatch;
+                const labMatch = r['Laboratory'] && String(r['Laboratory']).trim().toLowerCase() === currentLaboratory.toLowerCase();
+                return numMatch || methodMatch || catMatch || labMatch;
             });
         }
 
@@ -512,7 +513,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const numMatch = r['Test Number'] && allowedNums.has(String(r['Test Number']).trim());
                 const methodMatch = r['Test Method'] && allowedMethods.has(String(r['Test Method']).trim());
                 const catMatch = r['Category'] && String(r['Category']).trim().toLowerCase() === currentLaboratory.toLowerCase();
-                return numMatch || methodMatch || catMatch;
+                const labMatch = r['Laboratory'] && String(r['Laboratory']).trim().toLowerCase() === currentLaboratory.toLowerCase();
+                return numMatch || methodMatch || catMatch || labMatch;
             });
         }
 
