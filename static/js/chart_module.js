@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const laboratorySelect = document.getElementById('gantt-laboratory-select');
     const categorySelect = document.getElementById('gantt-category-select');
     const testMethodSelect = document.getElementById('gantt-testmethod-select');
-    const laboratorySelect = document.getElementById('gantt-laboratory-select');
     const scaleButtons = document.querySelectorAll('.scale-btn');
     const btnSubmitComment = document.getElementById('btn-submit-comment');
     const pdfComment = document.getElementById('pdf-comment');
@@ -27,7 +26,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentProjectName = '';
     let currentLaboratory = 'all';
     let currentCategory = 'all';
-    let currentLaboratory = 'all';
     let currentTestMethod = 'all';
     let selectedTestMethods = new Set();
     let customStartDate = '';
@@ -139,12 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        if (laboratorySelect) {
-            laboratorySelect.addEventListener('change', (e) => {
-                currentLaboratory = e.target.value;
-                renderGanttChart();
-            });
-        }
+
 
         if (testMethodSelect) {
             testMethodSelect.addEventListener('change', (e) => {
