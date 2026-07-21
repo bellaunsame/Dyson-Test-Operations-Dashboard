@@ -286,6 +286,58 @@ class TestOpsDashboardBackend(unittest.TestCase):
         self.assertIn('SheetScan', res_data['sheets'])
         self.assertEqual(res_data['sheets']['SheetScan']['status'], 'warning')
 
+    def test_laboratory_resolution(self):
+        """Test resolve_record_laboratory resolution logic."""
+        lab_test_numbers = {"Electronics": {"TM-100", "TM-101"}, "Mechanical": {"TM-200"}}
+        lab_test_methods = {"Electronics": {"Drop Test"}, "Mechanical": {"Vibration Test"}}
+
+        # Explicit Laboratory field present
+        r1 = {"Laboratory": "Custom Lab", "Test Number": "TM-100", "Test Method": "Vibration Test"}
+        self.assertEqual(app_module.resolve_record_laboratory(r1, lab_test_numbers, lab_test_methods), "Custom Lab")
+
+        # Match by Test Number
+        r2 = {"Test Number": "TM-101", "Test Method": "Unknown Method", "Category": "General"}
+        self.assertEqual(app_module.resolve_record_laboratory(r2, lab_test_numbers, lab_test_methods), "Electronics")
+
+        # Match by Test Method
+        r3 = {"Test Number": "TM-999", "Test Method": "Vibration Test", "Category": "General"}
+        self.assertEqual(app_module.resolve_record_laboratory(r3, lab_test_numbers, lab_test_methods), "Mechanical")
+
+        # Fallback to Category
+        r4 = {"Test Number": "TM-999", "Test Method": "Unknown", "Category": "Sensors"}
+        self.assertEqual(app_module.resolve_record_laboratory(r4, lab_test_numbers, lab_test_methods), "Sensors")
+
+    def test_api_master_data_laboratories(self):
+        """Test /api/master-data/laboratories endpoint returns valid structure."""
+        with self.app.session_transaction() as sess:
+            sess['logged_in'] = True
+            sess['username'] = 'admin'
+
+        response = self.app.get('/api/master-data/laboratories')
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn("laboratories", data)
+        self.assertIn("lab_test_numbers", data)
+        self.assertIn("lab_test_methods", data)
+        self.assertIsInstance(data["laboratories"], list)
+
+    def test_pdf_generation_with_laboratory_filter(self):
+        """Test PDF generation when a laboratory filter is applied."""
+        pdf_test_path = os.path.join(UPLOAD_FOLDER, "Lab_Filtered_Report.pdf")
+        if os.path.exists(pdf_test_path):
+            os.remove(pdf_test_path)
+
+        try:
+            generate_pdf_report(pdf_test_path, project_name="893", laboratory_filter="Electronics")
+            self.assertTrue(os.path.exists(pdf_test_path))
+            self.assertGreater(os.path.getsize(pdf_test_path), 0)
+        finally:
+            if os.path.exists(pdf_test_path):
+                try:
+                    os.remove(pdf_test_path)
+                except Exception:
+                    pass
+
 if __name__ == "__main__":
     unittest.main()
 
