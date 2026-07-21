@@ -32,7 +32,30 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 EXCEL_PATH = os.path.join(UPLOAD_FOLDER, 'tasks.xlsx')
 SYNC_CONFIG_PATH = os.path.join(UPLOAD_FOLDER, 'sync_config.json')
+
+def load_sync_config():
+    """Loads the sync configuration from sync_config.json, or falls back to environment variables."""
+    if os.path.exists(SYNC_CONFIG_PATH):
+        try:
+            with open(SYNC_CONFIG_PATH, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    
+    # Fallback to env
+    file_path = os.getenv('DEFAULT_SHAREPOINT_FILE_PATH')
+    if file_path:
+        selected_sheets_str = os.getenv('DEFAULT_SHAREPOINT_SELECTED_SHEETS', '')
+        selected_sheets = [s.strip() for s in selected_sheets_str.split(',') if s.strip()] if selected_sheets_str else []
+        return {
+            "file_path": file_path,
+            "selected_sheets": selected_sheets,
+            "removed_columns": {}
+        }
+    return None
+
 EMAIL_ATTACHMENT_MAX_MB = int(os.getenv('EMAIL_ATTACHMENT_MAX_MB', 18))
+
 
 # Initialize Excel file by copying template if it doesn't exist
 TEMPLATE_PATH = os.path.join(app.root_path, 'templates', 'SystemBoard.xlsx')
@@ -994,15 +1017,11 @@ def api_sharepoint_sync():
     removed_columns = data.get('removed_columns', {})
     
     # Try to load existing configuration if same file_path and no sheets provided
-    if not selected_sheets and os.path.exists(SYNC_CONFIG_PATH):
-        try:
-            with open(SYNC_CONFIG_PATH, 'r') as f:
-                old_config = json.load(f)
-            if old_config.get("file_path") == file_path:
-                selected_sheets = old_config.get("selected_sheets", [])
-                removed_columns = old_config.get("removed_columns", {})
-        except Exception:
-            pass
+    if not selected_sheets:
+        old_config = load_sync_config()
+        if old_config and old_config.get("file_path") == file_path:
+            selected_sheets = old_config.get("selected_sheets", [])
+            removed_columns = old_config.get("removed_columns", {})
             
     try:
         file_content = SharePointService.download_file(file_path)
@@ -1053,15 +1072,14 @@ def api_sharepoint_sync():
 @login_required
 def sync_sharepoint():
     """Triggers a sync of the Excel file from SharePoint using the saved configuration."""
-    if not os.path.exists(SYNC_CONFIG_PATH):
+    config = load_sync_config()
+    if not config:
         return jsonify({
             "success": False,
-            "error": "No saved sync configuration. Please configure the file first using the SharePoint Extractor in the sidebar."
+            "error": "No saved sync configuration. Please configure the file first using the SharePoint Extractor in the sidebar, or set DEFAULT_SHAREPOINT_FILE_PATH in your .env file."
         }), 400
         
     try:
-        with open(SYNC_CONFIG_PATH, 'r') as f:
-            config = json.load(f)
         file_path = config.get("file_path")
         selected_sheets = config.get("selected_sheets", [])
         removed_columns = config.get("removed_columns", {})
@@ -2587,10 +2605,9 @@ def generate_pdf_report(filename, project_name=None, comment=None, progress_call
         rej_by_cat.setdefault(cat, []).append(r)
 
     excel_filename = "tasks.xlsx"
-    if os.path.exists(SYNC_CONFIG_PATH):
+    config = load_sync_config()
+    if config:
         try:
-            with open(SYNC_CONFIG_PATH, 'r') as f:
-                config = json.load(f)
             path = config.get("file_path", "")
             if "://" in path:
                 path = path.split("://", 1)[1]

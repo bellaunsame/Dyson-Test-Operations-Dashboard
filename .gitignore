@@ -221,3 +221,5 @@ __marimo__/
 # Generated Reports & Local Excel
 uploads/*.pdf
 uploads/tasks.xlsx
+uploads/sync_config.json
+
