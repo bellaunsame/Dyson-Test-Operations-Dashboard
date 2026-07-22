@@ -1,1 +1,5 @@
-{"file_path": "local://SystemBoard.xlsx", "selected_sheets": ["873", "893", "913"], "removed_columns": {"873": [], "893": [], "913": []}}
+<<<<<<< HEAD
+{"file_path": "local://SystemBoard (1).xlsx", "selected_sheets": ["990A", "982"], "removed_columns": {"982": [], "990A": []}}
+=======
+{"file_path": "local://SystemBoard (1).xlsx", "selected_sheets": ["990A", "942"], "removed_columns": {}}
+>>>>>>> b78cb8d47c876695f118286da408ede13bd23292
